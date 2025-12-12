@@ -95,22 +95,58 @@ func main() {
 		if input == "health" {
 			leader := raft.Leader()
 			state := raft.State()
-			fmt.Printf("State: %s, Leader: %s\n", state, leader)
+			isLeader := (raft.State().String() == "Leader")
+			fmt.Printf("State: %s, Leader: %s, Is Leader: %v\n", state, leader, isLeader)
 			continue
 		}
 
 		// Check if current node is leader
-		if raft.Leader() == "" {
-			fmt.Println("Not the leader, waiting for leader election...")
+		leaderAddr := raft.Leader()
+		if leaderAddr == "" {
+			fmt.Println("⚠️  No leader yet, waiting for leader election...")
 			continue
 		}
 
-		// Send message (as simple string for now, like working code)
+		// Check if this node is the leader
+		isLeader := (raft.State().String() == "Leader")
+		if !isLeader {
+			// Not the leader - forward to leader via HTTP API
+			leaderID := ""
+			for _, node := range cfg.ClusterNodes {
+				if string(leaderAddr) == node.Address {
+					leaderID = node.ID
+					break
+				}
+			}
+			
+			// Try to forward via HTTP API
+			leaderAPIAddr := ""
+			for _, node := range cfg.ClusterNodes {
+				if string(leaderAddr) == node.Address {
+					ip := node.Address[:len(node.Address)-5] // Remove ":7000"
+					leaderAPIAddr = fmt.Sprintf("http://%s:%d", ip, node.APIPort)
+					break
+				}
+			}
+			
+			if leaderAPIAddr != "" {
+				fmt.Printf("⚠️  Not the leader (leader is %s). Forwarding to leader...\n", leaderID)
+				// For now, just tell user to use leader or we could implement HTTP forwarding
+				fmt.Printf("💡 Tip: Send messages from the leader node (%s) or use HTTP API: %s\n", leaderID, leaderAPIAddr)
+				continue
+			} else {
+				fmt.Printf("⚠️  Not the leader (leader is %s). Cannot forward automatically.\n", leaderAddr)
+				continue
+			}
+		}
+
+		// This node is the leader - apply directly
+		fmt.Printf("📤 Sending message to cluster...\n")
 		future := raft.Apply([]byte(input), 5*time.Second)
 		if err := future.Error(); err != nil {
-			log.Printf("Failed to apply log: %v", err)
+			fmt.Printf("❌ Failed to apply log: %v\n", err)
 		} else {
-			fmt.Printf("Applied: %v\n", future.Response())
+			fmt.Printf("✅ Applied: %v\n", future.Response())
 		}
 	}
 
