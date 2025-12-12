@@ -49,6 +49,11 @@ func NewService(cfg *Config, fsm FSMInterface) (*Service, error) {
 	// Set up Raft configuration
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(cfg.NodeID)
+	
+	// Reduce timeouts for faster failover
+	config.HeartbeatTimeout = 500 * time.Millisecond
+	config.ElectionTimeout = 500 * time.Millisecond
+	config.LeaderLeaseTimeout = 500 * time.Millisecond
 
 	// Create transport for Raft communication
 	addr, err := net.ResolveTCPAddr("tcp", cfg.NodeAddr)
