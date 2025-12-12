@@ -117,6 +117,9 @@ func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 	// Create data to verify (key_id + index)
 	data := fmt.Sprintf("%s:%d", entry.KeyID, entry.Index)
 	hash := sha256.Sum256([]byte(data))
+	
+	// Debug: log the data being verified (remove in production if needed)
+	fmt.Printf("[DEBUG] Verifying signature for data: %s, hash: %x\n", data, hash)
 
 	// Decode signature (base64 encoded ASN.1)
 	sigBytes, err := base64.StdEncoding.DecodeString(entry.Signature)

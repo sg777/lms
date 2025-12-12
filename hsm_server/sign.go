@@ -83,6 +83,9 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64) error {
 	data := fmt.Sprintf("%s:%d", keyID, index)
 	hash := sha256.Sum256([]byte(data))
 	
+	// Debug: log the data being signed (remove in production if needed)
+	fmt.Printf("[DEBUG] Signing data: %s, hash: %x\n", data, hash)
+	
 	// Sign with EC private key (ASN.1 format)
 	signature, err := ecdsa.SignASN1(rand.Reader, s.attestationPrivKey, hash[:])
 	if err != nil {
