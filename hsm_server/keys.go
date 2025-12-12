@@ -30,10 +30,12 @@ func LoadOrGenerateAttestationKeyPair() (*ecdsa.PrivateKey, *ecdsa.PublicKey, er
 	// Try to load existing keys
 	privKey, pubKey, err := loadKeys(privKeyPath, pubKeyPath)
 	if err == nil {
+		fmt.Printf("✅ Loaded existing attestation keys from %s/\n", keyDir)
 		return privKey, pubKey, nil
 	}
 
-	// Generate new keys
+	// Generate new keys (only if loading failed)
+	fmt.Printf("⚠️  Failed to load existing keys: %v\n", err)
 	fmt.Println("Generating new EC attestation key pair...")
 	privKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
