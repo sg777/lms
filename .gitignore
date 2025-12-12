@@ -40,3 +40,10 @@ Thumbs.db
 tmp/
 temp/
 
+# Keys and binaries
+keys/
+hsm-client
+hsm-server
+hsm-client-example
+lms-service
+
