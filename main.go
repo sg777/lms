@@ -2,20 +2,15 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/verifiable-state-chains/lms/fsm"
-	"github.com/verifiable-state-chains/lms/models"
 	"github.com/verifiable-state-chains/lms/service"
 )
 
