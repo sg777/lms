@@ -234,12 +234,46 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Step 3: Return response (signature field empty for now)
+	// Step 3: Load LMS key from database
+	key, err := s.db.GetKey(req.KeyID)
+	if err != nil {
+		// Key might not exist in DB yet (old keys), try memory cache
+		s.mu.RLock()
+		key, exists := s.keys[req.KeyID]
+		s.mu.RUnlock()
+		if !exists {
+			response := SignResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Key %s not found", req.KeyID),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+	}
+
+	// Step 4: Sign the message with LMS key
+	// TODO: Implement actual LMS signing using hash-sigs library
+	// For now, return placeholder
+	signature := "" // TODO: Generate actual LMS signature using key.PrivateKey
+	
+	// Step 5: Update index in database after signing
+	newIndex := indexToUse + 1
+	if err := s.db.UpdateKeyIndex(req.KeyID, newIndex); err != nil {
+		// Also update in-memory cache
+		s.mu.Lock()
+		if key, exists := s.keys[req.KeyID]; exists {
+			key.Index = newIndex
+		}
+		s.mu.Unlock()
+	}
+
 	response := SignResponse{
 		Success:   true,
 		KeyID:     req.KeyID,
 		Index:     indexToUse,
-		Signature: "", // Empty for now
+		Signature: signature, // TODO: Replace with actual LMS signature
 	}
 
 	w.Header().Set("Content-Type", "application/json")
