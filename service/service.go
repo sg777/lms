@@ -61,8 +61,11 @@ func NewService(cfg *Config, fsm FSMInterface) (*Service, error) {
 		return nil, fmt.Errorf("failed to resolve address: %v", err)
 	}
 	
+	// Use the port from NodeAddr for the transport listener
+	transportAddr := fmt.Sprintf("0.0.0.0:%d", addr.Port)
+	
 	transport, err := raft.NewTCPTransport(
-		"0.0.0.0:7000",
+		transportAddr,
 		addr,
 		3,
 		10*time.Second,
