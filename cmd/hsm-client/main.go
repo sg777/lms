@@ -19,10 +19,10 @@ func main() {
 
 	// Parse flags after command
 	flagSet := flag.NewFlagSet(command, flag.ExitOnError)
-	serverURL := flagSet.String("server", "http://localhost:9090", "HSM server URL")
+	serverURL := flagSet.String("server", "http://159.69.23.29:9090", "HSM server URL")
 	keyID := flagSet.String("key-id", "", "Key ID (for generate/sign command)")
 	message := flagSet.String("msg", "", "Message to sign (for sign command)")
-	raftEndpoint := flagSet.String("raft", "http://localhost:8080", "Raft cluster endpoint (for query command)")
+	raftEndpoint := flagSet.String("raft", "http://159.69.23.29:8080", "Raft cluster endpoint (for query command)")
 
 	flagSet.Parse(os.Args[2:])
 
@@ -130,7 +130,7 @@ func printHelp() {
 	fmt.Println("  ./hsm-client generate -key-id my_key")
 	fmt.Println("  ./hsm-client list")
 	fmt.Println("  ./hsm-client list -server http://159.69.23.29:9090")
-	fmt.Println("  ./hsm-client sign -key-id my_key -msg 'hello world'")
-	fmt.Println("  ./hsm-client query -key-id my_key -raft http://localhost:8080")
+	fmt.Println("  ./hsm-client sign -key-id my_key -msg 'hello world' -server http://159.69.23.29:9090")
+	fmt.Println("  ./hsm-client query -key-id my_key -raft http://159.69.23.29:8080")
 }
 

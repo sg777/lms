@@ -10,7 +10,7 @@ import (
 
 func main() {
 	port := flag.Int("port", 9090, "HSM server port")
-	raftEndpointsStr := flag.String("raft-endpoints", "http://localhost:8080", "Comma-separated list of Raft cluster endpoints")
+	raftEndpointsStr := flag.String("raft-endpoints", "http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080", "Comma-separated list of Raft cluster endpoints")
 	flag.Parse()
 	
 	raftEndpoints := strings.Split(*raftEndpointsStr, ",")
