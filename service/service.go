@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
@@ -56,10 +57,10 @@ func NewService(cfg *Config, fsm FSMInterface) (*Service, error) {
 	}
 	
 	transport, err := raft.NewTCPTransport(
-		fmt.Sprintf("0.0.0.0:%d", cfg.RaftPort),
+		"0.0.0.0:7000",
 		addr,
 		3,
-		cfg.LeaderTimeout,
+		10*time.Second,
 		os.Stderr,
 	)
 	if err != nil {
