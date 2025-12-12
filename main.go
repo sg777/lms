@@ -133,28 +133,129 @@ func main() {
 						continue
 					}
 					
-					if messages, ok := result["messages"].([]interface{}); ok {
+					// Display hash chain information from API response
+					genesisHash := ""
+					if gh, ok := result["genesis_hash"].(string); ok {
+						genesisHash = gh
+					}
+					
+					if logEntries, ok := result["log_entries"].([]interface{}); ok && len(logEntries) > 0 {
+						fmt.Printf("\n=== Committed Log Entries (%d total) ===\n", len(logEntries))
+						if genesisHash != "" {
+							fmt.Printf("Genesis Hash: %s\n\n", genesisHash)
+						}
+						
+						for i, entryData := range logEntries {
+							entry, ok := entryData.(map[string]interface{})
+							if !ok {
+								continue
+							}
+							
+							index := uint64(0)
+							term := uint64(0)
+							if idx, ok := entry["index"].(float64); ok {
+								index = uint64(idx)
+							}
+							if t, ok := entry["term"].(float64); ok {
+								term = uint64(t)
+							}
+							
+							fmt.Printf("--- Entry %d (Raft Index: %d, Term: %d) ---\n", i+1, index, term)
+							
+							// Check if entry has hash chain info in the response
+							if prevHash, ok := entry["previous_hash"].(string); ok {
+								fmt.Printf("  Previous Hash: %s\n", prevHash)
+								if prevHash == genesisHash {
+									fmt.Printf("  [GENESIS LINK]\n")
+								}
+							}
+							if hash, ok := entry["hash"].(string); ok {
+								fmt.Printf("  Current Hash:  %s\n", hash)
+							}
+							if lmsIdx, ok := entry["lms_index"].(float64); ok {
+								fmt.Printf("  LMS Index:     %d\n", uint64(lmsIdx))
+							}
+							if seq, ok := entry["sequence_number"].(float64); ok {
+								fmt.Printf("  Sequence:      %d\n", uint64(seq))
+							}
+							if msgHash, ok := entry["message_signed"].(string); ok {
+								fmt.Printf("  Message Hash:  %s\n", msgHash)
+							}
+							if entryType, ok := entry["type"].(string); ok && entryType == "simple_message" {
+								fmt.Printf("  Type: Simple Message\n")
+							}
+							
+							fmt.Printf("\n")
+						}
+						fmt.Printf("==========================================\n\n")
+					} else if messages, ok := result["messages"].([]interface{}); ok && len(messages) > 0 {
+						// Fallback to simple messages
 						fmt.Printf("\n=== All Messages (%d total) ===\n", len(messages))
+						if genesisHash != "" {
+							fmt.Printf("Genesis Hash: %s\n\n", genesisHash)
+						}
 						for i, msg := range messages {
 							fmt.Printf("%d. %s\n", i+1, msg)
 						}
 						fmt.Printf("=============================\n\n")
 					} else {
-						fmt.Printf("Total log entries: %.0f\n", result["total_count"].(float64))
+						count := 0
+						if tc, ok := result["total_count"].(float64); ok {
+							count = int(tc)
+						}
+						fmt.Printf("\n=== Committed Log Entries (%d total) ===\n", count)
+						if genesisHash != "" {
+							fmt.Printf("Genesis Hash: %s\n", genesisHash)
+						}
+						fmt.Printf("(No entries to display)\n")
+						fmt.Printf("==========================================\n\n")
 					}
 				} else {
 					fmt.Printf("⚠️  Cannot determine leader API address\n")
 				}
 			} else if isLeader {
 				// We're the leader - get directly from FSM
-				messages := fsmInstance.GetSimpleMessages()
-				count := fsmInstance.GetLogCount()
+				logEntries := fsmInstance.GetAllLogEntries()
+				genesisHash := fsmInstance.GetGenesisHash()
 				
-				fmt.Printf("\n=== All Messages (%d total) ===\n", count)
-				for i, msg := range messages {
-					fmt.Printf("%d. %s\n", i+1, msg)
+				fmt.Printf("\n=== Committed Log Entries (%d total) ===\n", len(logEntries))
+				fmt.Printf("Genesis Hash: %s\n\n", genesisHash)
+				
+				for i, entry := range logEntries {
+					fmt.Printf("--- Entry %d (Raft Index: %d, Term: %d) ---\n", i+1, entry.Index, entry.Term)
+					
+					if entry.Attestation != nil {
+						// It's an attestation - show hash chain info
+						payload, err := entry.Attestation.GetChainedPayload()
+						if err == nil {
+							fmt.Printf("  Previous Hash: %s\n", payload.PreviousHash)
+							fmt.Printf("  LMS Index:     %d\n", payload.LMSIndex)
+							fmt.Printf("  Sequence:      %d\n", payload.SequenceNumber)
+							fmt.Printf("  Message Hash:  %s\n", payload.MessageSigned)
+							fmt.Printf("  Timestamp:     %s\n", payload.Timestamp)
+						}
+						
+						// Compute current hash
+						hash, err := entry.Attestation.ComputeHash()
+						if err == nil {
+							fmt.Printf("  Current Hash:  %s\n", hash)
+						}
+						
+						// Show if this links to genesis
+						if payload != nil && payload.PreviousHash == genesisHash {
+							fmt.Printf("  [GENESIS LINK]\n")
+						}
+					} else {
+						// Simple string message
+						fmt.Printf("  Type: Simple Message\n")
+						if i < len(fsmInstance.GetSimpleMessages()) {
+							msgs := fsmInstance.GetSimpleMessages()
+							fmt.Printf("  Content: %s\n", msgs[i])
+						}
+					}
+					fmt.Printf("\n")
 				}
-				fmt.Printf("=============================\n\n")
+				fmt.Printf("==========================================\n\n")
 			} else {
 				fmt.Printf("⚠️  No leader available\n")
 			}

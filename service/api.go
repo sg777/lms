@@ -307,12 +307,54 @@ func (s *APIServer) handleList(w http.ResponseWriter, r *http.Request) {
 	// Get all simple messages from FSM
 	messages := s.fsm.GetSimpleMessages()
 	logEntries := s.fsm.GetAllLogEntries()
+	genesisHash := s.fsm.GetGenesisHash()
+	
+	// Enrich log entries with hash chain information
+	enrichedEntries := make([]map[string]interface{}, 0, len(logEntries))
+	for _, entry := range logEntries {
+		enriched := map[string]interface{}{
+			"index": entry.Index,
+			"term":  entry.Term,
+			"timestamp": entry.Timestamp,
+		}
+		
+		if entry.Attestation != nil {
+			// Extract hash chain information
+			payload, err := entry.Attestation.GetChainedPayload()
+			if err == nil {
+				enriched["previous_hash"] = payload.PreviousHash
+				enriched["lms_index"] = payload.LMSIndex
+				enriched["sequence_number"] = payload.SequenceNumber
+				enriched["message_signed"] = payload.MessageSigned
+				enriched["timestamp"] = payload.Timestamp
+				
+				// Compute current hash
+				hash, err := entry.Attestation.ComputeHash()
+				if err == nil {
+					enriched["hash"] = hash
+				}
+				
+				// Mark if this links to genesis
+				if payload.PreviousHash == genesisHash {
+					enriched["is_genesis_link"] = true
+				}
+			}
+			
+			// Include full attestation
+			enriched["attestation"] = entry.Attestation
+		} else {
+			enriched["type"] = "simple_message"
+		}
+		
+		enrichedEntries = append(enrichedEntries, enriched)
+	}
 	
 	response := map[string]interface{}{
-		"success":     true,
-		"total_count": len(logEntries),
-		"messages":    messages,
-		"log_entries": logEntries,
+		"success":      true,
+		"total_count":  len(logEntries),
+		"genesis_hash": genesisHash,
+		"messages":     messages,
+		"log_entries": enrichedEntries,
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
