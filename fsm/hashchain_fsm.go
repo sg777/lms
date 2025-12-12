@@ -23,9 +23,10 @@ type HashChainFSM struct {
 // NewHashChainFSM creates a new hash-chain FSM
 func NewHashChainFSM(genesisHash string) *HashChainFSM {
 	return &HashChainFSM{
-		attestations: make([]*models.AttestationResponse, 0),
-		logEntries:   make([]*models.LogEntry, 0),
-		genesisHash:  genesisHash,
+		attestations:   make([]*models.AttestationResponse, 0),
+		logEntries:    make([]*models.LogEntry, 0),
+		simpleMessages: make([]string, 0),
+		genesisHash:   genesisHash,
 	}
 }
 
@@ -70,6 +71,9 @@ func (f *HashChainFSM) Apply(l *raft.Log) interface{} {
 	// If not an attestation, treat as simple string message (for testing)
 	message := string(l.Data)
 	fmt.Printf("Applied log: %s\n", message)
+	
+	// Store the simple message
+	f.simpleMessages = append(f.simpleMessages, message)
 	
 	// Create a simple log entry for string messages
 	entry := &models.LogEntry{
@@ -206,6 +210,56 @@ func (f *HashChainFSM) GetLogCount() uint64 {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return uint64(len(f.logEntries))
+}
+
+// GetAllLogs returns all log entries (for simple string messages)
+func (f *HashChainFSM) GetAllLogs() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	
+	logs := make([]string, 0, len(f.logEntries))
+	for _, entry := range f.logEntries {
+		if entry.Attestation == nil {
+			// Simple string message - extract from Raft log
+			// We need to store this differently, for now return empty
+			continue
+		}
+		// For attestations, we could return summary
+		// For now, return empty for attestations
+	}
+	return logs
+}
+
+// GetAllLogEntries returns all log entries with full details
+func (f *HashChainFSM) GetAllLogEntries() []*models.LogEntry {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	
+	// Return copies to avoid race conditions
+	entries := make([]*models.LogEntry, 0, len(f.logEntries))
+	for _, entry := range f.logEntries {
+		data, err := entry.ToBytes()
+		if err != nil {
+			continue
+		}
+		var copy models.LogEntry
+		if err := copy.FromBytes(data); err != nil {
+			continue
+		}
+		entries = append(entries, &copy)
+	}
+	return entries
+}
+
+// GetSimpleMessages returns all simple string messages (non-attestation logs)
+func (f *HashChainFSM) GetSimpleMessages() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	
+	// Return a copy
+	messages := make([]string, len(f.simpleMessages))
+	copy(messages, f.simpleMessages)
+	return messages
 }
 
 // GetChainHeadHash returns the hash of the latest attestation (chain head)

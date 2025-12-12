@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -87,9 +89,61 @@ func main() {
 			break
 		}
 		if input == "list" {
-			// Get logs from FSM
-			count := hashChainFSM.GetLogCount()
-			fmt.Printf("Total log entries: %d\n", count)
+			// Check if we're leader or need to query leader
+			leaderAddr := raft.Leader()
+			isLeader := (raft.State().String() == "Leader")
+			
+			if !isLeader && leaderAddr != "" {
+				// Not leader - query leader via HTTP API
+				leaderAPIAddr := ""
+				for _, node := range cfg.ClusterNodes {
+					if string(leaderAddr) == node.Address {
+						ip := node.Address[:len(node.Address)-5] // Remove ":7000"
+						leaderAPIAddr = fmt.Sprintf("http://%s:%d", ip, node.APIPort)
+						break
+					}
+				}
+				
+				if leaderAPIAddr != "" {
+					fmt.Printf("📋 Querying leader for logs...\n")
+					resp, err := http.Get(leaderAPIAddr + "/list")
+					if err != nil {
+						fmt.Printf("❌ Failed to query leader: %v\n", err)
+						continue
+					}
+					defer resp.Body.Close()
+					
+					var result map[string]interface{}
+					if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+						fmt.Printf("❌ Failed to decode response: %v\n", err)
+						continue
+					}
+					
+					if messages, ok := result["messages"].([]interface{}); ok {
+						fmt.Printf("\n=== All Messages (%d total) ===\n", len(messages))
+						for i, msg := range messages {
+							fmt.Printf("%d. %s\n", i+1, msg)
+						}
+						fmt.Printf("=============================\n\n")
+					} else {
+						fmt.Printf("Total log entries: %.0f\n", result["total_count"].(float64))
+					}
+				} else {
+					fmt.Printf("⚠️  Cannot determine leader API address\n")
+				}
+			} else if isLeader {
+				// We're the leader - get directly from FSM
+				messages := hashChainFSM.GetSimpleMessages()
+				count := hashChainFSM.GetLogCount()
+				
+				fmt.Printf("\n=== All Messages (%d total) ===\n", count)
+				for i, msg := range messages {
+					fmt.Printf("%d. %s\n", i+1, msg)
+				}
+				fmt.Printf("=============================\n\n")
+			} else {
+				fmt.Printf("⚠️  No leader available\n")
+			}
 			continue
 		}
 		if input == "health" {

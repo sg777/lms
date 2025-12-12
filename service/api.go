@@ -25,6 +25,8 @@ type FSMInterface interface {
 	GetLatestAttestation() (*models.AttestationResponse, error)
 	GetLogEntry(index uint64) (*models.LogEntry, error)
 	GetLogCount() uint64
+	GetSimpleMessages() []string
+	GetAllLogEntries() []*models.LogEntry
 }
 
 // NewAPIServer creates a new API server
@@ -47,6 +49,7 @@ func (s *APIServer) Start() error {
 	mux.HandleFunc("/leader", s.handleLeader)
 	mux.HandleFunc("/latest-head", s.handleLatestHead)
 	mux.HandleFunc("/propose", s.handlePropose)
+	mux.HandleFunc("/list", s.handleList)
 	
 	addr := fmt.Sprintf(":%d", s.config.APIPort)
 	log.Printf("Starting API server on %s", addr)
