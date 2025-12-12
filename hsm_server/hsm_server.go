@@ -28,8 +28,8 @@ type HSMServer struct {
 
 // NewHSMServer creates a new HSM server
 func NewHSMServer(port int, raftEndpoints []string) (*HSMServer, error) {
-	// Load or generate attestation key pair
-	privKey, pubKey, err := LoadOrGenerateAttestationKeyPair()
+	// Load attestation key pair (must be generated with OpenSSL)
+	privKey, pubKey, err := LoadAttestationKeyPair()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load/generate attestation keys: %v", err)
 	}

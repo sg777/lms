@@ -17,7 +17,7 @@ import (
 // ./hsm-client sign -key-id lms_key_1 -msg "hello"
 func TestExactCommandFlow(t *testing.T) {
 	// Load the actual keys from the keys directory (same as production)
-	privKey, pubKey, err := LoadOrGenerateAttestationKeyPair()
+	privKey, pubKey, err := LoadAttestationKeyPair()
 	if err != nil {
 		t.Fatalf("Failed to load keys: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestExactCommandFlow(t *testing.T) {
 // with the exact data from the command
 func TestExactCommandFlow_VerifySignatureOnly(t *testing.T) {
 	// Load actual keys
-	privKey, pubKey, err := LoadOrGenerateAttestationKeyPair()
+	privKey, pubKey, err := LoadAttestationKeyPair()
 	if err != nil {
 		t.Fatalf("Failed to load keys: %v", err)
 	}
