@@ -113,6 +113,12 @@ func (f *KeyIndexFSM) Apply(l *raft.Log) interface{} {
 	return fmt.Sprintf("Applied key index: key_id=%s, index=%d", entry.KeyID, entry.Index)
 }
 
+// VerifySignature verifies the signature of a key index entry
+// Made public for testing
+func (f *KeyIndexFSM) VerifySignature(entry *KeyIndexEntry) error {
+	return f.verifySignature(entry)
+}
+
 func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 	// Create data to verify (key_id + index)
 	data := fmt.Sprintf("%s:%d", entry.KeyID, entry.Index)
