@@ -14,10 +14,11 @@ import (
 // It maintains a cryptographically linked chain where each entry's previous_hash
 // must match the hash of the previous entry
 type HashChainFSM struct {
-	mu            sync.RWMutex
-	attestations  []*models.AttestationResponse
-	logEntries    []*models.LogEntry
-	genesisHash   string // Hash of the genesis block (LMS public key + system bundle)
+	mu             sync.RWMutex
+	attestations   []*models.AttestationResponse
+	logEntries     []*models.LogEntry
+	simpleMessages []string // Store simple string messages separately
+	genesisHash    string   // Hash of the genesis block (LMS public key + system bundle)
 }
 
 // NewHashChainFSM creates a new hash-chain FSM

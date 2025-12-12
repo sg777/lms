@@ -243,3 +243,31 @@ func (s *APIServer) handlePropose(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// handleList handles requests to list all log entries
+func (s *APIServer) handleList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// If not leader, forward the request
+	if !s.forwarder.IsLeader() {
+		s.forwarder.ForwardRequest(w, r, "/list")
+		return
+	}
+	
+	// Get all simple messages from FSM
+	messages := s.fsm.GetSimpleMessages()
+	logEntries := s.fsm.GetAllLogEntries()
+	
+	response := map[string]interface{}{
+		"success":     true,
+		"total_count": len(logEntries),
+		"messages":    messages,
+		"log_entries": logEntries,
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
