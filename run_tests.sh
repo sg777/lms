@@ -4,6 +4,12 @@ echo "🧪 Running all signature verification tests..."
 echo ""
 
 echo "=========================================="
+echo "Testing HSM Server Key Consistency"
+echo "=========================================="
+go test -v ./hsm_server -run TestLoadAttestationKeyPair
+echo ""
+
+echo "=========================================="
 echo "Testing HSM Server Signature Creation"
 echo "=========================================="
 go test -v ./hsm_server -run TestCommitIndexToRaft_SignatureCreation
