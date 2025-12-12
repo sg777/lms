@@ -95,11 +95,9 @@ func (f *KeyIndexFSM) Apply(l *raft.Log) interface{} {
 		return fmt.Sprintf("Error: Failed to parse key index entry: %v", err)
 	}
 
-	// Verify EC signature if public key is loaded
-	if f.attestationPubKey != nil {
-		if err := f.verifySignature(&entry); err != nil {
-			return fmt.Sprintf("Error: Signature verification failed: %v", err)
-		}
+	// Verify EC signature using the public key from the entry
+	if err := f.verifySignature(&entry); err != nil {
+		return fmt.Sprintf("Error: Signature verification failed: %v", err)
 	}
 
 	// Check if index is valid (must be >= current index for this key_id)
@@ -126,9 +124,34 @@ func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 		return fmt.Errorf("failed to decode signature: %v", err)
 	}
 
-	// Verify signature (ASN.1 format)
-	if !ecdsa.VerifyASN1(f.attestationPubKey, hash[:], sigBytes) {
+	// Decode public key from the entry
+	pubKeyBytes, err := base64.StdEncoding.DecodeString(entry.PublicKey)
+	if err != nil {
+		return fmt.Errorf("failed to decode public key: %v", err)
+	}
+
+	// Parse public key
+	pubKeyInterface, err := x509.ParsePKIXPublicKey(pubKeyBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse public key: %v", err)
+	}
+
+	pubKey, ok := pubKeyInterface.(*ecdsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("not an ECDSA public key")
+	}
+
+	// Verify signature (ASN.1 format) using the public key from the entry
+	if !ecdsa.VerifyASN1(pubKey, hash[:], sigBytes) {
 		return fmt.Errorf("signature verification failed")
+	}
+
+	// Optional: Also verify against pre-loaded key if available (for additional security)
+	if f.attestationPubKey != nil {
+		// Check if the public key matches the pre-loaded one
+		if !pubKey.Equal(f.attestationPubKey) {
+			return fmt.Errorf("public key does not match registered attestation key")
+		}
 	}
 
 	return nil
