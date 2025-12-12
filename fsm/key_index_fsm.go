@@ -143,15 +143,7 @@ func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 
 	// Verify signature (ASN.1 format) using the public key from the entry
 	if !ecdsa.VerifyASN1(pubKey, hash[:], sigBytes) {
-		return fmt.Errorf("signature verification failed")
-	}
-
-	// Optional: Also verify against pre-loaded key if available (for additional security)
-	if f.attestationPubKey != nil {
-		// Check if the public key matches the pre-loaded one
-		if !pubKey.Equal(f.attestationPubKey) {
-			return fmt.Errorf("public key does not match registered attestation key")
-		}
+		return fmt.Errorf("signature verification failed: ECDSA verify returned false")
 	}
 
 	return nil

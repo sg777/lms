@@ -41,7 +41,7 @@ tmp/
 temp/
 
 # Keys and binaries
-keys/
+# keys/  # Commented out - committing static attestation keys for testing
 hsm-client
 hsm-server
 hsm-client-example
