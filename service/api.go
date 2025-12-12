@@ -50,6 +50,7 @@ func (s *APIServer) Start() error {
 	mux.HandleFunc("/latest-head", s.handleLatestHead)
 	mux.HandleFunc("/propose", s.handlePropose)
 	mux.HandleFunc("/list", s.handleList)
+	mux.HandleFunc("/send", s.handleSend)
 	
 	addr := fmt.Sprintf(":%d", s.config.APIPort)
 	log.Printf("Starting API server on %s", addr)
