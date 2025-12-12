@@ -283,6 +283,16 @@ func (f *HashChainFSM) GetGenesisHash() string {
 	return f.genesisHash
 }
 
+// GetKeyIndex returns the last used index for a key_id (not supported by hash-chain FSM)
+func (f *HashChainFSM) GetKeyIndex(keyID string) (uint64, bool) {
+	return 0, false
+}
+
+// GetAllKeyIndices returns all key_id -> index mappings (not supported by hash-chain FSM)
+func (f *HashChainFSM) GetAllKeyIndices() map[string]uint64 {
+	return make(map[string]uint64)
+}
+
 // VerifyChainIntegrity verifies the integrity of the entire chain
 func (f *HashChainFSM) VerifyChainIntegrity() error {
 	f.mu.RLock()

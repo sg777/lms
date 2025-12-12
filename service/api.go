@@ -31,6 +31,9 @@ type FSMInterface interface {
 	GetSimpleMessages() []string
 	GetAllLogEntries() []*models.LogEntry
 	GetGenesisHash() string
+	// Optional: KeyIndexFSMInterface methods
+	GetKeyIndex(keyID string) (uint64, bool)
+	GetAllKeyIndices() map[string]uint64
 }
 
 // NewAPIServer creates a new API server
@@ -59,6 +62,8 @@ func (s *APIServer) Start() error {
 	mux.HandleFunc("/propose", s.handlePropose)
 	mux.HandleFunc("/list", s.handleList)
 	mux.HandleFunc("/send", s.handleSend)
+	mux.HandleFunc("/key/", s.handleKeyIndex) // /key/<key_id>/index
+	mux.HandleFunc("/commit_index", s.handleCommitIndex)
 	
 	addr := fmt.Sprintf(":%d", s.config.APIPort)
 	log.Printf("Starting API server on %s", addr)

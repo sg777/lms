@@ -36,11 +36,23 @@ func main() {
 	cfg.RaftDir = *raftDir
 	cfg.Bootstrap = *bootstrap
 
-	// Create hash-chain FSM
-	hashChainFSM := fsm.NewHashChainFSM(*genesisHash)
-
-	// Create and start service
-	svc, err := service.NewService(cfg, hashChainFSM)
+	// Create combined FSM (hash-chain + key-index)
+	// Attestation public key path: ./keys/attestation_public_key.pem
+	var svc *service.Service
+	var fsmInstance service.FSMInterface
+	combinedFSM, err := fsm.NewCombinedFSM(*genesisHash, "./keys/attestation_public_key.pem")
+	if err != nil {
+		log.Printf("Warning: Failed to load attestation public key, continuing without signature verification: %v", err)
+		// Fallback to hash-chain only if key not found
+		hashChainFSM := fsm.NewHashChainFSM(*genesisHash)
+		fsmInstance = hashChainFSM
+		svc, err = service.NewService(cfg, hashChainFSM)
+	} else {
+		// Create and start service with combined FSM
+		fsmInstance = combinedFSM
+		svc, err = service.NewService(cfg, combinedFSM)
+	}
+	
 	if err != nil {
 		log.Fatalf("Failed to create service: %v", err)
 	}
@@ -135,8 +147,8 @@ func main() {
 				}
 			} else if isLeader {
 				// We're the leader - get directly from FSM
-				messages := hashChainFSM.GetSimpleMessages()
-				count := hashChainFSM.GetLogCount()
+				messages := fsmInstance.GetSimpleMessages()
+				count := fsmInstance.GetLogCount()
 				
 				fmt.Printf("\n=== All Messages (%d total) ===\n", count)
 				for i, msg := range messages {
