@@ -128,16 +128,21 @@ func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 	fmt.Printf("[DEBUG] Verifying signature for data: %s, hash: %x\n", data, hash)
 
 	// Decode signature (base64 encoded ASN.1)
+	fmt.Printf("[DEBUG] Received signature (base64): %s\n", entry.Signature)
+	fmt.Printf("[DEBUG] Received public key (base64): %s\n", entry.PublicKey)
+	
 	sigBytes, err := base64.StdEncoding.DecodeString(entry.Signature)
 	if err != nil {
 		return fmt.Errorf("failed to decode signature: %v", err)
 	}
+	fmt.Printf("[DEBUG] Decoded signature length: %d bytes\n", len(sigBytes))
 
 	// Decode public key from the entry
 	pubKeyBytes, err := base64.StdEncoding.DecodeString(entry.PublicKey)
 	if err != nil {
 		return fmt.Errorf("failed to decode public key: %v", err)
 	}
+	fmt.Printf("[DEBUG] Decoded public key length: %d bytes\n", len(pubKeyBytes))
 
 	// Parse public key
 	pubKeyInterface, err := x509.ParsePKIXPublicKey(pubKeyBytes)

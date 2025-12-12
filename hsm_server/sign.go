@@ -99,14 +99,21 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64) error {
 	}
 	
 	// Create commit request
+	sigBase64 := base64.StdEncoding.EncodeToString(signature)
+	pubKeyBase64 := base64.StdEncoding.EncodeToString(pubKeyBytes)
+	
+	fmt.Printf("[DEBUG] Signature (base64): %s\n", sigBase64)
+	fmt.Printf("[DEBUG] Public key (base64): %s\n", pubKeyBase64)
+	
 	commitReq := map[string]interface{}{
 		"key_id":     keyID,
 		"index":      index,
-		"signature":  base64.StdEncoding.EncodeToString(signature),
-		"public_key": base64.StdEncoding.EncodeToString(pubKeyBytes),
+		"signature":  sigBase64,
+		"public_key": pubKeyBase64,
 	}
 	
 	reqBody, err := json.Marshal(commitReq)
+	fmt.Printf("[DEBUG] Request body length: %d bytes\n", len(reqBody))
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
 	}
