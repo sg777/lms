@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	
 	"github.com/hashicorp/raft"
 	"github.com/verifiable-state-chains/lms/models"
+	"github.com/verifiable-state-chains/lms/validation"
 )
 
 // APIServer provides HTTP API for HSM clients
@@ -16,6 +18,7 @@ type APIServer struct {
 	forwarder     *LeaderForwarder
 	fsm           FSMInterface
 	config        *Config
+	validator     *validation.AttestationValidator
 }
 
 // FSMInterface defines the interface our FSM must implement
@@ -27,16 +30,21 @@ type FSMInterface interface {
 	GetLogCount() uint64
 	GetSimpleMessages() []string
 	GetAllLogEntries() []*models.LogEntry
+	GetGenesisHash() string
 }
 
 // NewAPIServer creates a new API server
-func NewAPIServer(r *raft.Raft, fsm FSMInterface, cfg *Config) *APIServer {
+func NewAPIServer(r *raft.Raft, fsm FSMInterface, cfg *Config, genesisHash string) *APIServer {
 	forwarder := NewLeaderForwarder(r, cfg)
+	validator := validation.NewAttestationValidator(genesisHash)
+	// Use mock signature verifier for now (can be replaced with real crypto)
+	validator.SetSignatureVerifier(validation.MockSignatureVerifier())
 	return &APIServer{
 		raft:      r,
 		forwarder: forwarder,
 		fsm:       fsm,
 		config:    cfg,
+		validator: validator,
 	}
 }
 
@@ -189,6 +197,40 @@ func (s *APIServer) handlePropose(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(response)
 		return
+	}
+	
+	// Validate attestation before applying to Raft
+	// Get previous attestation for hash chain validation
+	previousAttestation, err := s.fsm.GetLatestAttestation()
+	isGenesis := (err != nil) // If error, chain is empty (genesis)
+	
+	validationResult := s.validator.ValidateAttestation(
+		req.Attestation,
+		previousAttestation,
+		isGenesis,
+	)
+	
+	if !validationResult.Valid {
+		// Build detailed error message
+		errorMessages := make([]string, 0, len(validationResult.Errors))
+		for _, err := range validationResult.Errors {
+			errorMessages = append(errorMessages, err.Error())
+		}
+		errorMsg := strings.Join(errorMessages, "; ")
+		
+		response := models.ProposeAttestationResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Validation failed: %s", errorMsg),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	
+	// Log warnings if any
+	if len(validationResult.Warnings) > 0 {
+		log.Printf("Validation warnings: %v", validationResult.Warnings)
 	}
 	
 	// Serialize attestation to JSON

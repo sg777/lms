@@ -96,8 +96,9 @@ func NewService(cfg *Config, fsm FSMInterface) (*Service, error) {
 		log.Println("Cluster bootstrapped successfully")
 	}
 
-	// Create API server
-	api := NewAPIServer(r, fsm, cfg)
+	// Create API server (get genesis hash from FSM)
+	genesisHash := fsm.GetGenesisHash()
+	api := NewAPIServer(r, fsm, cfg, genesisHash)
 
 	return &Service{
 		raft:   r,

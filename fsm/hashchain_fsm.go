@@ -276,6 +276,13 @@ func (f *HashChainFSM) GetChainHeadHash() (string, error) {
 	return latest.ComputeHash()
 }
 
+// GetGenesisHash returns the genesis hash
+func (f *HashChainFSM) GetGenesisHash() string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.genesisHash
+}
+
 // VerifyChainIntegrity verifies the integrity of the entire chain
 func (f *HashChainFSM) VerifyChainIntegrity() error {
 	f.mu.RLock()
