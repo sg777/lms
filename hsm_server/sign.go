@@ -3,6 +3,7 @@ package hsm_server
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -83,7 +84,7 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64) error {
 	hash := sha256.Sum256([]byte(data))
 	
 	// Sign with EC private key (ASN.1 format)
-	signature, err := ecdsa.SignASN1(nil, s.attestationPrivKey, hash[:])
+	signature, err := ecdsa.SignASN1(rand.Reader, s.attestationPrivKey, hash[:])
 	if err != nil {
 		return fmt.Errorf("failed to sign: %v", err)
 	}
