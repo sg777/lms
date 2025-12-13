@@ -361,79 +361,23 @@ func (s *APIServer) handleList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// handleSend handles simple string message sending (for CLI forwarding)
+// handleSend handles simple string message sending (DISABLED - only LMS index commits allowed)
+// This endpoint is disabled because this service only accepts LMS index-related messages
+// via the /commit_index endpoint with proper EC signature authentication.
 func (s *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	
-	// If not leader, forward the request
-	if !s.forwarder.IsLeader() {
-		s.forwarder.ForwardRequest(w, r, "/send")
-		return
-	}
-	
-	// Parse request
-	var reqBody map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-		response := map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Invalid request: %v", err),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	
-	message, ok := reqBody["message"].(string)
-	if !ok || message == "" {
-		response := map[string]interface{}{
-			"success": false,
-			"error":   "Message is required",
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	
-	// Apply to Raft
-	future := s.raft.Apply([]byte(message), s.config.RequestTimeout)
-	if err := future.Error(); err != nil {
-		response := map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Raft apply failed: %v", err),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	
-	// Get Raft stats
-	stats := s.raft.Stats()
-	raftIndex := uint64(0)
-	raftTerm := uint64(0)
-	
-	if idxStr, ok := stats["last_log_index"]; ok {
-		fmt.Sscanf(idxStr, "%d", &raftIndex)
-	}
-	if termStr, ok := stats["term"]; ok {
-		fmt.Sscanf(termStr, "%d", &raftTerm)
-	}
-	
+	// SECURITY: Reject all /send requests - only /commit_index is allowed
+	// This service only accepts LMS index commitments with proper authentication
 	response := map[string]interface{}{
-		"success":    true,
-		"committed":  true,
-		"message":    message,
-		"raft_index": raftIndex,
-		"raft_term":  raftTerm,
-		"response":   future.Response(),
+		"success": false,
+		"error":   "This service only accepts LMS index-related messages. Use /commit_index endpoint with proper EC signature authentication. Unauthenticated commits are not allowed.",
 	}
-	
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
 	json.NewEncoder(w).Encode(response)
 }
 
