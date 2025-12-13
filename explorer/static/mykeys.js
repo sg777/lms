@@ -29,6 +29,7 @@ async function loadMyKeys(silent = false) {
         if (!data.success || !data.keys || data.keys.length === 0) {
             container.innerHTML = '<div class="error">No keys found. Generate your first key to get started!</div>';
             updateSignKeySelect([]);
+            updateVerifyKeySelect([]);
             return;
         }
         
@@ -55,8 +56,9 @@ async function loadMyKeys(silent = false) {
         html += '</tbody></table>';
         container.innerHTML = html;
         
-        // Update sign key select
+        // Update sign key select and verify key select
         updateSignKeySelect(data.keys);
+        updateVerifyKeySelect(data.keys);
         
     } catch (error) {
         if (!silent) {
@@ -70,6 +72,24 @@ function updateSignKeySelect(keys) {
     if (!select) return;
     
     // Clear existing options (except first)
+    while (select.options.length > 1) {
+        select.remove(1);
+    }
+    
+    // Add keys
+    keys.forEach(key => {
+        const option = document.createElement('option');
+        option.value = key.key_id;
+        option.textContent = `${key.key_id} (Index: ${key.index})`;
+        select.appendChild(option);
+    });
+}
+
+function updateVerifyKeySelect(keys) {
+    const select = document.getElementById('verifyKeySelect');
+    if (!select) return;
+    
+    // Clear existing options (except first default option)
     while (select.options.length > 1) {
         select.remove(1);
     }
