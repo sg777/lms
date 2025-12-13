@@ -45,7 +45,7 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get key index from FSM (FSMInterface now includes these methods)
+	// Get key index and hash from FSM
 	index, exists := s.fsm.GetKeyIndex(keyID)
 	
 	response := map[string]interface{}{
@@ -56,8 +56,15 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 	
 	if exists {
 		response["index"] = index
+		// Try to get hash if FSM supports it (for hash chain)
+		if hashFSM, ok := s.fsm.(interface{ GetKeyHash(string) (string, bool) }); ok {
+			if hash, hashExists := hashFSM.GetKeyHash(keyID); hashExists {
+				response["hash"] = hash
+			}
+		}
 	} else {
 		response["index"] = nil
+		response["hash"] = nil
 		response["message"] = "key_id not found"
 	}
 
@@ -67,10 +74,12 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 
 // CommitIndexRequest is the request to commit an index for a key_id
 type CommitIndexRequest struct {
-	KeyID     string `json:"key_id"`
-	Index     uint64 `json:"index"`
-	Signature string `json:"signature"`  // Base64 encoded EC signature
-	PublicKey string `json:"public_key"` // Base64 encoded EC public key
+	KeyID       string `json:"key_id"`
+	Index       uint64 `json:"index"`
+	PreviousHash string `json:"previous_hash"` // SHA-256 hash of previous entry (genesis: all 0's)
+	Hash        string `json:"hash"`           // SHA-256 hash of this entry
+	Signature   string `json:"signature"`      // Base64 encoded EC signature
+	PublicKey   string `json:"public_key"`     // Base64 encoded EC public key
 }
 
 // CommitIndexResponse is the response from committing an index
@@ -144,10 +153,12 @@ func (s *APIServer) handleCommitIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Create KeyIndexEntry for validation
 	entry := fsm.KeyIndexEntry{
-		KeyID:     req.KeyID,
-		Index:     req.Index,
-		Signature: req.Signature,
-		PublicKey: req.PublicKey,
+		KeyID:       req.KeyID,
+		Index:       req.Index,
+		PreviousHash: req.PreviousHash,
+		Hash:        req.Hash,
+		Signature:   req.Signature,
+		PublicKey:   req.PublicKey,
 	}
 
 	// Validate message format: should be "key_id:index" format

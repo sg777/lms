@@ -33,8 +33,8 @@ func TestKeyIndexFSM_VerifySignature(t *testing.T) {
 
 	// Sign data (same format as commitIndexToRaft)
 	data := "test_key_1:0" // fmt.Sprintf("%s:%d", keyID, index)
-	hash := sha256.Sum256([]byte(data))
-	signature, err := ecdsa.SignASN1(rand.Reader, privKey, hash[:])
+	dataHash := sha256.Sum256([]byte(data))
+	signature, err := ecdsa.SignASN1(rand.Reader, privKey, dataHash[:])
 	if err != nil {
 		t.Fatalf("Failed to sign: %v", err)
 	}
@@ -45,13 +45,22 @@ func TestKeyIndexFSM_VerifySignature(t *testing.T) {
 		t.Fatalf("Failed to marshal public key: %v", err)
 	}
 
-	// Create entry
+	// Create entry with hash chain fields
 	entry := KeyIndexEntry{
-		KeyID:     keyID,
-		Index:     index,
-		Signature: base64.StdEncoding.EncodeToString(signature),
-		PublicKey: base64.StdEncoding.EncodeToString(pubKeyBytes),
+		KeyID:       keyID,
+		Index:       index,
+		PreviousHash: GenesisHash, // First entry uses genesis hash
+		Hash:        "",           // Will be computed
+		Signature:   base64.StdEncoding.EncodeToString(signature),
+		PublicKey:   base64.StdEncoding.EncodeToString(pubKeyBytes),
 	}
+	
+	// Compute hash
+	entryHash, err := entry.ComputeHash()
+	if err != nil {
+		t.Fatalf("Failed to compute hash: %v", err)
+	}
+	entry.Hash = entryHash
 
 	// Verify signature
 	err = fsm.verifySignature(&entry)
@@ -80,16 +89,25 @@ func TestKeyIndexFSM_Apply_ValidSignature(t *testing.T) {
 	keyID := "test_key_1"
 	index := uint64(0)
 	data := "test_key_1:0"
-	hash := sha256.Sum256([]byte(data))
-	signature, _ := ecdsa.SignASN1(rand.Reader, privKey, hash[:])
+	dataHash := sha256.Sum256([]byte(data))
+	signature, _ := ecdsa.SignASN1(rand.Reader, privKey, dataHash[:])
 	pubKeyBytes, _ := x509.MarshalPKIXPublicKey(pubKey)
 
 	entry := KeyIndexEntry{
-		KeyID:     keyID,
-		Index:     index,
-		Signature: base64.StdEncoding.EncodeToString(signature),
-		PublicKey: base64.StdEncoding.EncodeToString(pubKeyBytes),
+		KeyID:       keyID,
+		Index:       index,
+		PreviousHash: GenesisHash, // First entry uses genesis hash
+		Hash:        "",           // Will be computed
+		Signature:   base64.StdEncoding.EncodeToString(signature),
+		PublicKey:   base64.StdEncoding.EncodeToString(pubKeyBytes),
 	}
+	
+	// Compute hash
+	entryHash, err := entry.ComputeHash()
+	if err != nil {
+		t.Fatalf("Failed to compute hash: %v", err)
+	}
+	entry.Hash = entryHash
 
 	// Serialize entry
 	entryData, err := json.Marshal(entry)
@@ -144,16 +162,25 @@ func TestKeyIndexFSM_Apply_InvalidSignature(t *testing.T) {
 	
 	// Sign WRONG data
 	wrongData := "wrong_data"
-	hash := sha256.Sum256([]byte(wrongData))
-	signature, _ := ecdsa.SignASN1(rand.Reader, privKey, hash[:])
+	dataHash := sha256.Sum256([]byte(wrongData))
+	signature, _ := ecdsa.SignASN1(rand.Reader, privKey, dataHash[:])
 	pubKeyBytes, _ := x509.MarshalPKIXPublicKey(pubKey)
 
 	entry := KeyIndexEntry{
-		KeyID:     keyID,
-		Index:     index,
-		Signature: base64.StdEncoding.EncodeToString(signature), // Wrong signature
-		PublicKey: base64.StdEncoding.EncodeToString(pubKeyBytes),
+		KeyID:       keyID,
+		Index:       index,
+		PreviousHash: GenesisHash, // First entry uses genesis hash
+		Hash:        "",           // Will be computed
+		Signature:   base64.StdEncoding.EncodeToString(signature), // Wrong signature
+		PublicKey:   base64.StdEncoding.EncodeToString(pubKeyBytes),
 	}
+	
+	// Compute hash (even with wrong signature, hash is still computed)
+	entryHash, err := entry.ComputeHash()
+	if err != nil {
+		t.Fatalf("Failed to compute hash: %v", err)
+	}
+	entry.Hash = entryHash
 
 	// Serialize entry
 	entryData, err := json.Marshal(entry)
@@ -234,8 +261,8 @@ func TestKeyIndexFSM_EndToEnd(t *testing.T) {
 	
 	// Sign (same as commitIndexToRaft)
 	data := "e2e_test_key:0" // fmt.Sprintf("%s:%d", keyID, index)
-	hash := sha256.Sum256([]byte(data))
-	signature, err := ecdsa.SignASN1(rand.Reader, privKey, hash[:])
+	dataHash := sha256.Sum256([]byte(data))
+	signature, err := ecdsa.SignASN1(rand.Reader, privKey, dataHash[:])
 	if err != nil {
 		t.Fatalf("Failed to sign: %v", err)
 	}
@@ -248,11 +275,20 @@ func TestKeyIndexFSM_EndToEnd(t *testing.T) {
 
 	// Create entry (same format as sent to Raft)
 	entry := KeyIndexEntry{
-		KeyID:     keyID,
-		Index:     index,
-		Signature: base64.StdEncoding.EncodeToString(signature),
-		PublicKey: base64.StdEncoding.EncodeToString(pubKeyBytes),
+		KeyID:       keyID,
+		Index:       index,
+		PreviousHash: GenesisHash, // First entry uses genesis hash
+		Hash:        "",           // Will be computed
+		Signature:   base64.StdEncoding.EncodeToString(signature),
+		PublicKey:   base64.StdEncoding.EncodeToString(pubKeyBytes),
 	}
+	
+	// Compute hash
+	entryHash, err := entry.ComputeHash()
+	if err != nil {
+		t.Fatalf("Failed to compute hash: %v", err)
+	}
+	entry.Hash = entryHash
 
 	// Serialize and apply
 	entryData, _ := json.Marshal(entry)

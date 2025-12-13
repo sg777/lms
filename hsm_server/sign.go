@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/verifiable-state-chains/lms/fsm"
 	"github.com/verifiable-state-chains/lms/lms_wrapper"
 )
 
@@ -31,8 +32,8 @@ type SignResponse struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// queryRaftForKeyIndex queries Raft cluster for key_id's last index
-func (s *HSMServer) queryRaftForKeyIndex(keyID string) (uint64, bool, error) {
+// queryRaftForKeyIndex queries Raft cluster for key_id's last index and hash
+func (s *HSMServer) queryRaftForKeyIndex(keyID string) (uint64, string, bool, error) {
 	var lastErr error
 	
 	for _, endpoint := range s.raftEndpoints {
@@ -66,31 +67,37 @@ func (s *HSMServer) queryRaftForKeyIndex(keyID string) (uint64, bool, error) {
 		
 		exists, _ := response["exists"].(bool)
 		if !exists {
-			return 0, false, nil // Key not found
+			return 0, "", false, nil // Key not found
 		}
 		
 		index, ok := response["index"].(float64) // JSON numbers are float64
 		if !ok {
-			return 0, false, fmt.Errorf("invalid index in response")
+			return 0, "", false, fmt.Errorf("invalid index in response")
 		}
 		
-		return uint64(index), true, nil
+		// Get hash if present (for hash chain)
+		hash := ""
+		if hashVal, ok := response["hash"].(string); ok && hashVal != "" {
+			hash = hashVal
+		}
+		
+		return uint64(index), hash, true, nil
 	}
 	
-	return 0, false, fmt.Errorf("all endpoints failed: %v", lastErr)
+	return 0, "", false, fmt.Errorf("all endpoints failed: %v", lastErr)
 }
 
-// commitIndexToRaft commits an index to Raft cluster with EC signature
-func (s *HSMServer) commitIndexToRaft(keyID string, index uint64) error {
-	// Create data to sign: key_id:index
+// commitIndexToRaft commits an index to Raft cluster with EC signature and hash chain
+func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash string) error {
+	// Create data to sign: key_id:index (signature format unchanged for compatibility)
 	data := fmt.Sprintf("%s:%d", keyID, index)
-	hash := sha256.Sum256([]byte(data))
+	dataHash := sha256.Sum256([]byte(data))
 	
 	// Debug: log the data being signed (remove in production if needed)
-	fmt.Printf("[DEBUG] Signing data: %s, hash: %x\n", data, hash)
+	fmt.Printf("[DEBUG] Signing data: %s, hash: %x\n", data, dataHash)
 	
 	// Sign with EC private key (ASN.1 format)
-	signature, err := ecdsa.SignASN1(rand.Reader, s.attestationPrivKey, hash[:])
+	signature, err := ecdsa.SignASN1(rand.Reader, s.attestationPrivKey, dataHash[:])
 	if err != nil {
 		return fmt.Errorf("failed to sign: %v", err)
 	}
@@ -101,18 +108,34 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64) error {
 		return fmt.Errorf("failed to marshal public key: %v", err)
 	}
 	
+	// Create entry (without hash first, so we can compute it)
+	entry := fsm.KeyIndexEntry{
+		KeyID:       keyID,
+		Index:       index,
+		PreviousHash: previousHash,
+		Hash:        "", // Will be computed
+		Signature:   base64.StdEncoding.EncodeToString(signature),
+		PublicKey:   base64.StdEncoding.EncodeToString(pubKeyBytes),
+	}
+	
+	// Compute hash of entry (all fields except Hash)
+	computedHash, err := entry.ComputeHash()
+	if err != nil {
+		return fmt.Errorf("failed to compute entry hash: %v", err)
+	}
+	entry.Hash = computedHash
+	
+	fmt.Printf("[DEBUG] Entry hash: %s\n", entry.Hash)
+	fmt.Printf("[DEBUG] Previous hash: %s\n", entry.PreviousHash)
+	
 	// Create commit request
-	sigBase64 := base64.StdEncoding.EncodeToString(signature)
-	pubKeyBase64 := base64.StdEncoding.EncodeToString(pubKeyBytes)
-	
-	fmt.Printf("[DEBUG] Signature (base64): %s\n", sigBase64)
-	fmt.Printf("[DEBUG] Public key (base64): %s\n", pubKeyBase64)
-	
 	commitReq := map[string]interface{}{
-		"key_id":     keyID,
-		"index":      index,
-		"signature":  sigBase64,
-		"public_key": pubKeyBase64,
+		"key_id":       entry.KeyID,
+		"index":        entry.Index,
+		"previous_hash": entry.PreviousHash,
+		"hash":         entry.Hash,
+		"signature":    entry.Signature,
+		"public_key":   entry.PublicKey,
 	}
 	
 	reqBody, err := json.Marshal(commitReq)
@@ -194,8 +217,8 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 1: Query Raft cluster for key_id's last index
-	lastIndex, exists, err := s.queryRaftForKeyIndex(req.KeyID)
+	// Step 1: Query Raft cluster for key_id's last index and hash
+	lastIndex, lastHash, exists, err := s.queryRaftForKeyIndex(req.KeyID)
 	if err != nil {
 		response := SignResponse{
 			Success: false,
@@ -208,10 +231,13 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var indexToUse uint64
+	var previousHash string
+	
 	if !exists {
-		// Step 2: Key not found, commit index 0 to Raft
+		// Step 2: Key not found, commit index 0 to Raft with genesis hash
 		indexToUse = 0
-		if err := s.commitIndexToRaft(req.KeyID, indexToUse); err != nil {
+		previousHash = fsm.GenesisHash
+		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash); err != nil {
 			response := SignResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to commit index to Raft: %v", err),
@@ -222,10 +248,15 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Key exists, use next index
+		// Key exists, use next index and previous entry's hash
 		indexToUse = lastIndex + 1
+		previousHash = lastHash
+		if previousHash == "" {
+			// Fallback: if hash not available, use genesis (shouldn't happen, but safe fallback)
+			previousHash = fsm.GenesisHash
+		}
 		// Commit the new index
-		if err := s.commitIndexToRaft(req.KeyID, indexToUse); err != nil {
+		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash); err != nil {
 			response := SignResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to commit index to Raft: %v", err),
