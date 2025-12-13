@@ -61,6 +61,7 @@ func (s *APIServer) Start() error {
 	mux.HandleFunc("/propose", s.handlePropose)
 	mux.HandleFunc("/list", s.handleList)
 	mux.HandleFunc("/send", s.handleSend)
+	mux.HandleFunc("/keys", s.handleKeys) // Get all key IDs
 	mux.HandleFunc("/key/", s.handleKeyIndex) // /key/<key_id>/index
 	mux.HandleFunc("/commit_index", s.handleCommitIndex)
 	

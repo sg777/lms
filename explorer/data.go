@@ -71,18 +71,13 @@ func (s *ExplorerServer) getRecentCommits(limit int) ([]CommitInfo, error) {
 	return allCommits, nil
 }
 
-// getAllKeys gets all key IDs from the cluster by querying the Raft log
+// getAllKeys gets all key IDs from the cluster
 func (s *ExplorerServer) getAllKeys() ([]string, error) {
 	var lastErr error
 	
-	// We need to query each Raft endpoint and extract key IDs from log entries
-	// Since there's no direct "list all keys" endpoint, we'll parse the /list response
-	// to extract key_id from KeyIndexEntry entries
-	
-	keySet := make(map[string]bool)
-	
+	// Try the new /keys endpoint first
 	for _, endpoint := range s.raftEndpoints {
-		url := fmt.Sprintf("%s/list", endpoint)
+		url := fmt.Sprintf("%s/keys", endpoint)
 		resp, err := s.client.Get(url)
 		if err != nil {
 			lastErr = err
@@ -100,33 +95,31 @@ func (s *ExplorerServer) getAllKeys() ([]string, error) {
 			continue
 		}
 
-		// Extract key IDs from log entries
-		if logEntries, ok := response["log_entries"].([]interface{}); ok {
-			for _, entryData := range logEntries {
-				entryMap, ok := entryData.(map[string]interface{})
-				if !ok {
-					continue
+		success, _ := response["success"].(bool)
+		if !success {
+			continue
+		}
+
+		// Extract keys array
+		if keysArray, ok := response["keys"].([]interface{}); ok {
+			keys := make([]string, 0, len(keysArray))
+			for _, key := range keysArray {
+				if keyStr, ok := key.(string); ok {
+					keys = append(keys, keyStr)
 				}
-				
-				// Check if this is a KeyIndexEntry (has key_id field)
-				if keyID, ok := entryMap["key_id"].(string); ok && keyID != "" {
-					keySet[keyID] = true
-				}
+			}
+			if len(keys) > 0 {
+				return keys, nil
 			}
 		}
 	}
 
-	if len(keySet) == 0 && lastErr != nil {
-		return nil, fmt.Errorf("failed to get keys: %v", lastErr)
+	// Fallback: return empty list if /keys endpoint is not available or returns empty
+	if lastErr != nil {
+		return []string{}, nil // Return empty list instead of error to allow stats to work
 	}
 
-	// Convert map to slice
-	keys := make([]string, 0, len(keySet))
-	for key := range keySet {
-		keys = append(keys, key)
-	}
-
-	return keys, nil
+	return []string{}, nil
 }
 
 // search performs a search by key_id, hash, or index
