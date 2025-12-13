@@ -167,127 +167,23 @@ func (s *APIServer) handleLatestHead(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// handlePropose handles attestation proposal requests
+// handlePropose handles attestation proposal requests (DISABLED - only LMS index commits allowed)
+// This endpoint is disabled because this service only accepts LMS index-related messages
+// via the /commit_index endpoint with proper EC signature authentication.
 func (s *APIServer) handlePropose(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	
-	// If not leader, forward the request
-	if !s.forwarder.IsLeader() {
-		s.forwarder.ForwardRequest(w, r, "/propose")
-		return
-	}
-	
-	// Parse request
-	var req models.ProposeAttestationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response := models.ProposeAttestationResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Invalid request: %v", err),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	
-	if req.Attestation == nil {
-		response := models.ProposeAttestationResponse{
-			Success: false,
-			Error:   "Attestation is required",
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	
-	// Validate attestation before applying to Raft
-	// Get previous attestation for hash chain validation
-	previousAttestation, err := s.fsm.GetLatestAttestation()
-	isGenesis := (err != nil) // If error, chain is empty (genesis)
-	
-	validationResult := s.validator.ValidateAttestation(
-		req.Attestation,
-		previousAttestation,
-		isGenesis,
-	)
-	
-	if !validationResult.Valid {
-		// Build detailed error message
-		errorMessages := make([]string, 0, len(validationResult.Errors))
-		for _, err := range validationResult.Errors {
-			errorMessages = append(errorMessages, err.Error())
-		}
-		errorMsg := strings.Join(errorMessages, "; ")
-		
-		response := models.ProposeAttestationResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Validation failed: %s", errorMsg),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	
-	// Log warnings if any
-	if len(validationResult.Warnings) > 0 {
-		log.Printf("Validation warnings: %v", validationResult.Warnings)
-	}
-	
-	// Serialize attestation to JSON
-	attestationData, err := req.Attestation.ToJSON()
-	if err != nil {
-		response := models.ProposeAttestationResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to serialize attestation: %v", err),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	
-	// Apply to Raft
-	future := s.raft.Apply(attestationData, s.config.RequestTimeout)
-	if err := future.Error(); err != nil {
-		response := models.ProposeAttestationResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Raft apply failed: %v", err),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(response)
-		return
-	}
-	
-	// Get response from FSM
-	responseData := future.Response()
-	
-	// Get Raft stats
-	stats := s.raft.Stats()
-	raftIndex := uint64(0)
-	raftTerm := uint64(0)
-	
-	if idxStr, ok := stats["last_log_index"]; ok {
-		fmt.Sscanf(idxStr, "%d", &raftIndex)
-	}
-	if termStr, ok := stats["term"]; ok {
-		fmt.Sscanf(termStr, "%d", &raftTerm)
-	}
-	
+	// SECURITY: Reject all /propose requests - only /commit_index is allowed
+	// This service only accepts LMS index commitments with proper authentication
 	response := models.ProposeAttestationResponse{
-		Success:   true,
-		Committed: true,
-		RaftIndex: raftIndex,
-		RaftTerm:  raftTerm,
-		Message:   fmt.Sprintf("Attestation committed: %v", responseData),
+		Success: false,
+		Error:   "This service only accepts LMS index-related messages. Use /commit_index endpoint with proper EC signature authentication. Unauthenticated commits are not allowed.",
 	}
-	
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
 	json.NewEncoder(w).Encode(response)
 }
 
