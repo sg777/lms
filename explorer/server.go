@@ -11,8 +11,10 @@ import (
 // ExplorerServer provides web interface for exploring hash chains
 type ExplorerServer struct {
 	raftEndpoints []string
+	hsmEndpoint   string // HSM server endpoint
 	port          int
 	client        *http.Client
+	authServer    *AuthServer
 	
 	// Cache for recent commits
 	cacheMu          sync.RWMutex
@@ -73,15 +75,22 @@ type StatsResponse struct {
 }
 
 // NewExplorerServer creates a new explorer server
-func NewExplorerServer(port int, raftEndpoints []string) *ExplorerServer {
+func NewExplorerServer(port int, raftEndpoints []string, hsmEndpoint string) (*ExplorerServer, error) {
+	authServer, err := NewAuthServer()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth server: %v", err)
+	}
+
 	return &ExplorerServer{
 		raftEndpoints: raftEndpoints,
+		hsmEndpoint:   hsmEndpoint,
 		port:          port,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		cacheTTL: 5 * time.Second, // Cache for 5 seconds
-	}
+		authServer: authServer,
+		cacheTTL:   5 * time.Second, // Cache for 5 seconds
+	}, nil
 }
 
 // Start starts the explorer server
@@ -93,6 +102,16 @@ func (s *ExplorerServer) Start() error {
 	mux.HandleFunc("/api/search", s.handleSearch)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/chain/", s.handleChain) // /api/chain/<key_id>
+	
+	// Authentication endpoints
+	mux.HandleFunc("/api/auth/register", s.authServer.Register)
+	mux.HandleFunc("/api/auth/login", s.authServer.Login)
+	mux.HandleFunc("/api/auth/me", s.authServer.GetMe)
+	
+	// Authenticated HSM endpoints (proxy to HSM server with user context)
+	mux.HandleFunc("/api/my/keys", s.handleMyKeys)
+	mux.HandleFunc("/api/my/generate", s.handleGenerateKey)
+	mux.HandleFunc("/api/my/sign", s.handleSign)
 	
 	// Static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./explorer/static"))))

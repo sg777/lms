@@ -15,6 +15,7 @@ import (
 // LMSKey represents an LMS key managed by the HSM server
 type LMSKey struct {
 	KeyID      string    `json:"key_id"`
+	UserID     string    `json:"user_id,omitempty"` // Owner of the key (optional for backward compatibility)
 	Index      uint64    `json:"index"`
 	Created    string    `json:"created"`
 	PrivateKey []byte    `json:"private_key,omitempty"` // Serialized LMS private key (not sent to clients)
@@ -85,7 +86,8 @@ func NewHSMServer(port int, raftEndpoints []string) (*HSMServer, error) {
 
 // GenerateKeyRequest is the request to generate a new LMS key
 type GenerateKeyRequest struct {
-	KeyID string `json:"key_id,omitempty"` // Optional, server generates if not provided
+	KeyID  string `json:"key_id,omitempty"`  // Optional, server generates if not provided
+	UserID string `json:"user_id,omitempty"` // User ID from JWT token (added by explorer proxy)
 }
 
 // GenerateKeyResponse is the response from generating a key
@@ -105,18 +107,33 @@ type ListKeysResponse struct {
 }
 
 // generateKey generates a new LMS key using the LMS wrapper
-func (s *HSMServer) generateKey(keyID string) (*LMSKey, error) {
+func (s *HSMServer) generateKey(keyID string, userID string) (*LMSKey, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// If key_id not provided, generate one
 	if keyID == "" {
-		keyID = fmt.Sprintf("lms_key_%d", len(s.keys)+1)
+		if userID != "" {
+			keyID = fmt.Sprintf("user_%s_key_%d", userID, len(s.keys)+1)
+		} else {
+			keyID = fmt.Sprintf("lms_key_%d", len(s.keys)+1)
+		}
 	}
 
-	// Check if key_id already exists (check both cache and DB)
-	if _, exists := s.keys[keyID]; exists {
-		return nil, fmt.Errorf("key_id %s already exists", keyID)
+	// Check if key_id already exists for this user (check both cache and DB)
+	// Only check if key belongs to same user (if userID provided)
+	for _, existingKey := range s.keys {
+		if existingKey.KeyID == keyID {
+			// If userID provided, check ownership
+			if userID != "" && existingKey.UserID != userID {
+				return nil, fmt.Errorf("key_id %s already exists for another user", keyID)
+			}
+			// If no userID (backward compatibility), allow if key has no user
+			if userID == "" && existingKey.UserID != "" {
+				return nil, fmt.Errorf("key_id %s already exists for a user", keyID)
+			}
+			return nil, fmt.Errorf("key_id %s already exists", keyID)
+		}
 	}
 
 	// Generate actual LMS key pair using hash-sigs library
@@ -133,7 +150,8 @@ func (s *HSMServer) generateKey(keyID string) (*LMSKey, error) {
 	// Create key object
 	key := &LMSKey{
 		KeyID:      keyID,
-		Index:      0, // Always starts at 0
+		UserID:     userID, // Associate key with user
+		Index:      0,      // Always starts at 0
 		Created:    time.Now().Format(time.RFC3339),
 		PrivateKey: privKey,
 		PublicKey:  pubKey,
@@ -158,19 +176,26 @@ func (s *HSMServer) generateKey(keyID string) (*LMSKey, error) {
 }
 
 // listKeys returns all keys (without private keys)
-func (s *HSMServer) listKeys() []LMSKey {
+// If userID is provided, only returns keys for that user
+func (s *HSMServer) listKeys(userID string) []LMSKey {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	keys := make([]LMSKey, 0, len(s.keys))
 	for _, key := range s.keys {
+		// Filter by userID if provided
+		if userID != "" && key.UserID != userID {
+			continue
+		}
+		
 		// Create a copy without private key for client response
 		keyCopy := LMSKey{
-			KeyID:   key.KeyID,
-			Index:   key.Index,
-			Created: key.Created,
+			KeyID:    key.KeyID,
+			UserID:   key.UserID,
+			Index:    key.Index,
+			Created:  key.Created,
 			PublicKey: key.PublicKey,
-			Params:  key.Params,
+			Params:   key.Params,
 			// PrivateKey is intentionally omitted
 		}
 		keys = append(keys, keyCopy)
@@ -197,7 +222,16 @@ func (s *HSMServer) handleGenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := s.generateKey(req.KeyID)
+	// Get user_id from request (set by explorer proxy) or from JWT token
+	userID := req.UserID
+	if userID == "" {
+		// Try to extract from JWT token for backward compatibility
+		if tokenUserID, err := getUserIdFromRequest(r); err == nil {
+			userID = tokenUserID
+		}
+	}
+
+	key, err := s.generateKey(req.KeyID, userID)
 	if err != nil {
 		response := GenerateKeyResponse{
 			Success: false,
@@ -226,7 +260,16 @@ func (s *HSMServer) handleListKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys := s.listKeys()
+	// Get user_id from query parameter (set by explorer proxy) or from JWT token
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		// Try to extract from JWT token
+		if tokenUserID, err := getUserIdFromRequest(r); err == nil {
+			userID = tokenUserID
+		}
+	}
+
+	keys := s.listKeys(userID)
 	response := ListKeysResponse{
 		Success: true,
 		Keys:    keys,

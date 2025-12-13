@@ -11,6 +11,7 @@ import (
 func main() {
 	port := flag.Int("port", 8081, "Explorer server port")
 	raftEndpointsStr := flag.String("raft-endpoints", "http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080", "Comma-separated list of Raft cluster endpoints")
+	hsmEndpoint := flag.String("hsm-endpoint", "http://159.69.23.29:9090", "HSM server endpoint")
 	flag.Parse()
 
 	raftEndpoints := strings.Split(*raftEndpointsStr, ",")
@@ -18,9 +19,13 @@ func main() {
 		raftEndpoints[i] = strings.TrimSpace(raftEndpoints[i])
 	}
 
-	server := explorer.NewExplorerServer(*port, raftEndpoints)
+	server, err := explorer.NewExplorerServer(*port, raftEndpoints, *hsmEndpoint)
+	if err != nil {
+		log.Fatalf("Failed to create explorer server: %v", err)
+	}
 	
 	log.Printf("Starting LMS Hash Chain Explorer on port %d", *port)
+	log.Printf("HSM endpoint: %s", *hsmEndpoint)
 	if err := server.Start(); err != nil {
 		log.Fatalf("Explorer server error: %v", err)
 	}

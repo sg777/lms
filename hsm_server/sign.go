@@ -19,8 +19,9 @@ import (
 
 // SignRequest is the request to sign a message
 type SignRequest struct {
-	KeyID  string `json:"key_id"`
+	KeyID   string `json:"key_id"`
 	Message string `json:"message"`
+	UserID  string `json:"user_id,omitempty"` // User ID from JWT token (added by explorer proxy)
 }
 
 // SignResponse is the response from signing
@@ -215,6 +216,50 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(response)
 		return
+	}
+
+	// Get user_id from request (set by explorer proxy) or from JWT token
+	userID := req.UserID
+	if userID == "" {
+		// Try to extract from JWT token
+		if tokenUserID, err := getUserIdFromRequest(r); err == nil {
+			userID = tokenUserID
+		}
+	}
+
+	// Verify key ownership if user_id is provided
+	if userID != "" {
+		s.mu.RLock()
+		key, exists := s.keys[req.KeyID]
+		s.mu.RUnlock()
+		
+		if !exists {
+			// Try database
+			dbKey, err := s.db.GetKey(req.KeyID)
+			if err != nil || dbKey == nil {
+				response := SignResponse{
+					Success: false,
+					Error:   fmt.Sprintf("Key %s not found", req.KeyID),
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(response)
+				return
+			}
+			key = dbKey
+		}
+		
+		// Check ownership
+		if key.UserID != "" && key.UserID != userID {
+			response := SignResponse{
+				Success: false,
+				Error:   "You do not have permission to use this key",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
 	}
 
 	// Step 1: Query Raft cluster for key_id's last index and hash
