@@ -443,8 +443,10 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
-	// Encode signature as base64 for JSON response
-	signature := base64.StdEncoding.EncodeToString(signatureBytes)
+	// Encode signature and public key as base64 for JSON response
+	signatureB64 := base64.StdEncoding.EncodeToString(signatureBytes)
+	publicKeyB64 := base64.StdEncoding.EncodeToString(lmsKey.PublicKey)
+	
 	log.Printf("[DEBUG] Generated LMS signature for key_id=%s, index=%d, signature_len=%d bytes", 
 		req.KeyID, indexToUse, len(signatureBytes))
 	
@@ -459,11 +461,18 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 	}
 
+	// Create structured signature
+	structuredSig := &StructuredSignature{
+		PublicKey: publicKeyB64,
+		Index:     indexToUse,
+		Signature: signatureB64,
+	}
+
 	response := SignResponse{
 		Success:   true,
 		KeyID:     req.KeyID,
 		Index:     indexToUse,
-		Signature: signature, // TODO: Replace with actual LMS signature
+		Signature: structuredSig,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

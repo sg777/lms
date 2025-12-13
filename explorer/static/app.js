@@ -100,6 +100,9 @@ function setupEventListeners() {
     if (importKeyBtn) importKeyBtn.addEventListener('click', () => openModal('importKeyModal'));
     if (signBtn) signBtn.addEventListener('click', handleSignMessage);
     if (importKeyForm) importKeyForm.addEventListener('submit', handleImportKey);
+    
+    const verifySignatureForm = document.getElementById('verifySignatureForm');
+    if (verifySignatureForm) verifySignatureForm.addEventListener('submit', handleVerifySignature);
 }
 
 // Compare two commit arrays to see if they're the same
