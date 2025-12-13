@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LMS Hash Chain Explorer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔗 LMS Hash Chain Explorer</h1>
+            <p class="subtitle">Verifiable State Chain Explorer</p>
+        </header>
+
+        <!-- Search Bar -->
+        <div class="search-section">
+            <div class="search-container">
+                <input type="text" id="searchInput" placeholder="Search by key_id, hash, or index..." class="search-input">
+                <button id="searchBtn" class="search-btn">Search</button>
+            </div>
+            <div class="search-hint">
+                <span>Examples: <code>lms_key_1</code>, <code>g5WYnCjbDHzQdzvb7uOkmueXZHxbt5VOIO5oLCAi6zQ=</code></span>
+            </div>
+        </div>
+
+        <!-- Statistics Dashboard -->
+        <div class="stats-section" id="statsSection">
+            <div class="stat-card">
+                <div class="stat-label">Total Keys</div>
+                <div class="stat-value" id="statTotalKeys">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Commits</div>
+                <div class="stat-value" id="statTotalCommits">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Valid Chains</div>
+                <div class="stat-value valid" id="statValidChains">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Broken Chains</div>
+                <div class="stat-value broken" id="statBrokenChains">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Last Updated</div>
+                <div class="stat-value small" id="statLastUpdate">-</div>
+            </div>
+        </div>
+
+        <!-- Recent Commits Table -->
+        <div class="section">
+            <div class="section-header">
+                <h2>Recent Commits</h2>
+                <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
+            </div>
+            <div id="recentCommits" class="table-container">
+                <div class="loading">Loading recent commits...</div>
+            </div>
+        </div>
+
+        <!-- Search Results -->
+        <div class="section" id="searchResultsSection" style="display: none;">
+            <div class="section-header">
+                <h2>Search Results</h2>
+                <button id="clearSearchBtn" class="clear-btn">Clear</button>
+            </div>
+            <div id="searchResults" class="results-container"></div>
+        </div>
+
+        <!-- Chain View -->
+        <div class="section" id="chainSection" style="display: none;">
+            <div class="section-header">
+                <h2 id="chainTitle">Chain View</h2>
+                <button id="closeChainBtn" class="close-btn">Close</button>
+            </div>
+            <div id="chainView" class="chain-container"></div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
+
