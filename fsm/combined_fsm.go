@@ -106,6 +106,10 @@ func (f *CombinedFSM) GetKeyIndex(keyID string) (uint64, bool) {
 	return f.keyIndexFSM.GetKeyIndex(keyID)
 }
 
+func (f *CombinedFSM) GetKeyHash(keyID string) (string, bool) {
+	return f.keyIndexFSM.GetKeyHash(keyID)
+}
+
 func (f *CombinedFSM) GetAllKeyIndices() map[string]uint64 {
 	return f.keyIndexFSM.GetAllKeyIndices()
 }
