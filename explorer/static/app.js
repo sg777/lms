@@ -317,9 +317,27 @@ async function handleSearch() {
 }
 
 async function viewChain(keyId) {
+    // Switch to explorer tab if we're in My Keys tab
+    const explorerTab = document.getElementById('explorerTab');
+    const myKeysTab = document.getElementById('myKeysTab');
+    
+    if (myKeysTab && myKeysTab.classList.contains('active')) {
+        // Switch to explorer tab
+        if (explorerTab) {
+            explorerTab.click();
+        }
+        // Wait for tab switch to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
     const chainSection = document.getElementById('chainSection');
     const chainView = document.getElementById('chainView');
     const chainTitle = document.getElementById('chainTitle');
+    
+    if (!chainSection || !chainView || !chainTitle) {
+        alert('Chain view not available. Please ensure you are on the Explorer tab.');
+        return;
+    }
     
     chainSection.style.display = 'block';
     chainTitle.textContent = `Chain: ${keyId}`;
@@ -330,16 +348,28 @@ async function viewChain(keyId) {
 
     try {
         const response = await fetch(`${API_BASE}/api/chain/${encodeURIComponent(keyId)}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
 
-        if (!data.success || !data.chain) {
-            chainView.innerHTML = '<div class="error">Failed to load chain</div>';
+        if (!data.success) {
+            const errorMsg = data.error || data.message || 'Failed to load chain';
+            chainView.innerHTML = `<div class="error">Error: ${escapeHtml(errorMsg)}</div>`;
+            return;
+        }
+
+        if (!data.chain || !data.chain.entries || data.chain.entries.length === 0) {
+            chainView.innerHTML = '<div class="error">Chain is empty or key not found</div>';
             return;
         }
 
         displayChain(data.chain, chainView);
     } catch (error) {
-        chainView.innerHTML = `<div class="error">Error loading chain: ${error.message}</div>`;
+        chainView.innerHTML = `<div class="error">Error loading chain: ${escapeHtml(error.message)}</div>`;
+        console.error('Chain load error:', error);
     }
 }
 
