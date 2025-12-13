@@ -114,6 +114,10 @@ func (f *CombinedFSM) GetAllKeyIndices() map[string]uint64 {
 	return f.keyIndexFSM.GetAllKeyIndices()
 }
 
+func (f *CombinedFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
+	return f.keyIndexFSM.GetKeyChain(keyID)
+}
+
 type combinedSnapshot struct {
 	hashChainSnapshot raft.FSMSnapshot
 	keyIndexSnapshot  raft.FSMSnapshot

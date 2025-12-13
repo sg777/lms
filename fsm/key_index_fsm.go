@@ -59,9 +59,10 @@ const GenesisHash = "00000000000000000000000000000000000000000000000000000000000
 // KeyIndexFSM stores key_id -> index mappings with EC signature verification and hash chain
 type KeyIndexFSM struct {
 	mu               sync.RWMutex
-	keyIndices       map[string]uint64  // key_id -> last used index
-	keyHashes        map[string]string  // key_id -> hash of last entry (for hash chain validation)
-	attestationPubKey *ecdsa.PublicKey // Public key for verifying signatures
+	keyIndices       map[string]uint64              // key_id -> last used index
+	keyHashes        map[string]string              // key_id -> hash of last entry (for hash chain validation)
+	keyEntries       map[string][]*KeyIndexEntry     // key_id -> all entries (for full chain retrieval)
+	attestationPubKey *ecdsa.PublicKey             // Public key for verifying signatures
 }
 
 // NewKeyIndexFSM creates a new key index FSM
@@ -70,6 +71,7 @@ func NewKeyIndexFSM(attestationPubKeyPath string) (*KeyIndexFSM, error) {
 	fsm := &KeyIndexFSM{
 		keyIndices: make(map[string]uint64),
 		keyHashes:  make(map[string]string),
+		keyEntries: make(map[string][]*KeyIndexEntry),
 	}
 
 	// Load attestation public key
@@ -160,6 +162,17 @@ func (f *KeyIndexFSM) Apply(l *raft.Log) interface{} {
 	// This stored hash will be used as previous_hash for the next entry - never recomputed
 	f.keyIndices[entry.KeyID] = entry.Index
 	f.keyHashes[entry.KeyID] = entry.Hash
+	
+	// Store the full entry for chain retrieval
+	entryCopy := &KeyIndexEntry{
+		KeyID:       entry.KeyID,
+		Index:       entry.Index,
+		PreviousHash: entry.PreviousHash,
+		Hash:        entry.Hash,
+		Signature:   entry.Signature,
+		PublicKey:   entry.PublicKey,
+	}
+	f.keyEntries[entry.KeyID] = append(f.keyEntries[entry.KeyID], entryCopy)
 
 	return fmt.Sprintf("Applied key index: key_id=%s, index=%d, hash=%s", entry.KeyID, entry.Index, entry.Hash)
 }
@@ -334,6 +347,32 @@ func (f *KeyIndexFSM) GetAllKeyIndices() map[string]uint64 {
 		result[k] = v
 	}
 	return result
+}
+
+// GetKeyChain returns all entries for a key_id (full hash chain)
+func (f *KeyIndexFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	entries, exists := f.keyEntries[keyID]
+	if !exists || len(entries) == 0 {
+		return nil, false
+	}
+
+	// Return copies to avoid race conditions
+	result := make([]*KeyIndexEntry, len(entries))
+	for i, entry := range entries {
+		result[i] = &KeyIndexEntry{
+			KeyID:       entry.KeyID,
+			Index:       entry.Index,
+			PreviousHash: entry.PreviousHash,
+			Hash:        entry.Hash,
+			Signature:   entry.Signature,
+			PublicKey:   entry.PublicKey,
+		}
+	}
+
+	return result, true
 }
 
 // Snapshot creates a snapshot

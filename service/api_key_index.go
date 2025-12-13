@@ -15,8 +15,8 @@ type KeyIndexFSMInterface interface {
 	GetAllKeyIndices() map[string]uint64
 }
 
-// handleKeyIndex handles requests for key_id's last index
-// URL format: /key/<key_id>/index
+// handleKeyIndex handles requests for key_id's last index or full chain
+// URL format: /key/<key_id>/index or /key/<key_id>/chain
 func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -29,10 +29,22 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract key_id from path: /key/<key_id>/index
+	// Extract key_id and endpoint type from path: /key/<key_id>/index or /key/<key_id>/chain
 	path := strings.TrimPrefix(r.URL.Path, "/key/")
-	path = strings.TrimSuffix(path, "/index")
-	keyID := path
+	
+	var keyID string
+	var endpoint string
+	
+	if strings.HasSuffix(path, "/chain") {
+		keyID = strings.TrimSuffix(path, "/chain")
+		endpoint = "chain"
+	} else if strings.HasSuffix(path, "/index") {
+		keyID = strings.TrimSuffix(path, "/index")
+		endpoint = "index"
+	} else {
+		keyID = path
+		endpoint = "index" // Default to index
+	}
 
 	if keyID == "" {
 		response := map[string]interface{}{
@@ -45,6 +57,61 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle chain endpoint
+	if endpoint == "chain" {
+		// Try to get full chain if FSM supports it
+		if chainFSM, ok := s.fsm.(interface{ GetKeyChain(string) ([]*fsm.KeyIndexEntry, bool) }); ok {
+			entries, exists := chainFSM.GetKeyChain(keyID)
+			if !exists {
+				response := map[string]interface{}{
+					"success": true,
+					"key_id":  keyID,
+					"exists":  false,
+					"chain":   []interface{}{},
+					"count":   0,
+					"message": "key_id not found",
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(response)
+				return
+			}
+
+			// Convert entries to JSON-serializable format
+			chainEntries := make([]map[string]interface{}, len(entries))
+			for i, entry := range entries {
+				chainEntries[i] = map[string]interface{}{
+					"key_id":       entry.KeyID,
+					"index":        entry.Index,
+					"previous_hash": entry.PreviousHash,
+					"hash":         entry.Hash,
+					"signature":    entry.Signature,
+					"public_key":   entry.PublicKey,
+				}
+			}
+
+			response := map[string]interface{}{
+				"success": true,
+				"key_id":  keyID,
+				"exists":  true,
+				"chain":   chainEntries,
+				"count":   len(chainEntries),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			return
+		} else {
+			response := map[string]interface{}{
+				"success": false,
+				"error":   "Chain retrieval not supported by FSM",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotImplemented)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+	}
+
+	// Handle index endpoint (existing behavior)
 	// Get key index and hash from FSM
 	index, exists := s.fsm.GetKeyIndex(keyID)
 	
