@@ -31,20 +31,30 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Extract key_id and endpoint type from path: /key/<key_id>/index or /key/<key_id>/chain
 	path := strings.TrimPrefix(r.URL.Path, "/key/")
+	path = strings.Trim(path, "/") // Remove leading/trailing slashes
 	
 	var keyID string
 	var endpoint string
 	
+	// Check for /chain or /index suffix
 	if strings.HasSuffix(path, "/chain") {
 		keyID = strings.TrimSuffix(path, "/chain")
 		endpoint = "chain"
 	} else if strings.HasSuffix(path, "/index") {
 		keyID = strings.TrimSuffix(path, "/index")
 		endpoint = "index"
+	} else if path == "chain" || path == "index" {
+		// Edge case: /key/chain or /key/index (no key_id)
+		keyID = ""
+		endpoint = path
 	} else {
+		// No endpoint specified, default to index
 		keyID = path
-		endpoint = "index" // Default to index
+		endpoint = "index"
 	}
+	
+	// Clean up keyID (remove trailing slashes)
+	keyID = strings.Trim(keyID, "/")
 
 	if keyID == "" {
 		response := map[string]interface{}{
