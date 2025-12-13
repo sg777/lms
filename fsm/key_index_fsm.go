@@ -119,6 +119,59 @@ func (f *KeyIndexFSM) VerifySignature(entry *KeyIndexEntry) error {
 	return f.verifySignature(entry)
 }
 
+// VerifyCommitSignature verifies a commit signature matches the expected attestation public key
+// This should be called BEFORE applying to Raft to reject unauthorized commits
+// Only the HSM server with the attestation private key should be able to commit
+func VerifyCommitSignature(entry *KeyIndexEntry) error {
+	// This is a helper function that can be called from API server
+	// Load the expected attestation public key
+	keysPath := filepath.Join("./keys", "attestation_public_key.pem")
+	pubKey, err := loadAttestationPublicKey(keysPath)
+	if err != nil {
+		return fmt.Errorf("failed to load expected attestation public key: %v", err)
+	}
+
+	// Create data to verify (key_id:index format)
+	data := fmt.Sprintf("%s:%d", entry.KeyID, entry.Index)
+	hash := sha256.Sum256([]byte(data))
+
+	// Decode signature
+	sigBytes, err := base64.StdEncoding.DecodeString(entry.Signature)
+	if err != nil {
+		return fmt.Errorf("failed to decode signature: %v", err)
+	}
+
+	// Decode public key from request
+	reqPubKeyBytes, err := base64.StdEncoding.DecodeString(entry.PublicKey)
+	if err != nil {
+		return fmt.Errorf("failed to decode public key from request: %v", err)
+	}
+
+	// Parse public key from request
+	reqPubKeyInterface, err := x509.ParsePKIXPublicKey(reqPubKeyBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse public key from request: %v", err)
+	}
+
+	reqPubKey, ok := reqPubKeyInterface.(*ecdsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("public key from request is not ECDSA")
+	}
+
+	// CRITICAL: Verify that the public key in the request matches the expected attestation public key
+	// Only the HSM server with the matching private key can create valid signatures
+	if !pubKey.Equal(reqPubKey) {
+		return fmt.Errorf("public key does not match expected attestation public key (unauthorized commit attempt)")
+	}
+
+	// Verify signature using the expected attestation public key
+	if !ecdsa.VerifyASN1(pubKey, hash[:], sigBytes) {
+		return fmt.Errorf("signature verification failed (invalid signature)")
+	}
+
+	return nil
+}
+
 func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 	// Create data to verify (key_id + index)
 	data := fmt.Sprintf("%s:%d", entry.KeyID, entry.Index)

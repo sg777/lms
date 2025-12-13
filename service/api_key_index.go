@@ -107,10 +107,11 @@ func (s *APIServer) handleCommitIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate request format - this service only handles LMS index-related messages
 	if req.KeyID == "" {
 		response := CommitIndexResponse{
 			Success: false,
-			Error:   "key_id is required",
+			Error:   "key_id is required for LMS index commitment",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -118,12 +119,61 @@ func (s *APIServer) handleCommitIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create KeyIndexEntry
+	// Validate signature and public key are provided
+	if req.Signature == "" {
+		response := CommitIndexResponse{
+			Success: false,
+			Error:   "signature is required (only HSM server with attestation key can commit)",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	if req.PublicKey == "" {
+		response := CommitIndexResponse{
+			Success: false,
+			Error:   "public_key is required (only HSM server with attestation key can commit)",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Create KeyIndexEntry for validation
 	entry := fsm.KeyIndexEntry{
 		KeyID:     req.KeyID,
 		Index:     req.Index,
 		Signature: req.Signature,
 		PublicKey: req.PublicKey,
+	}
+
+	// Validate message format: should be "key_id:index" format
+	expectedData := fmt.Sprintf("%s:%d", req.KeyID, req.Index)
+	if expectedData == "" {
+		response := CommitIndexResponse{
+			Success: false,
+			Error:   "invalid message format for LMS index commitment",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Verify signature BEFORE applying to Raft (early rejection)
+	// This ensures only HSM server with correct attestation key can commit
+	if err := fsm.VerifyCommitSignature(&entry); err != nil {
+		response := CommitIndexResponse{
+			Success: false,
+			Error:   fmt.Sprintf("signature verification failed: %v (only HSM server with attestation key can commit)", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(response)
+		return
 	}
 
 	// Serialize entry
