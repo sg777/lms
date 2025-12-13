@@ -4,8 +4,17 @@ const API_BASE = window.location.origin;
 let currentCommits = null;
 let currentStats = null;
 
+// Authentication state
+let authToken = localStorage.getItem('auth_token');
+let currentUser = null;
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+    // Check if user is already logged in
+    if (authToken) {
+        checkAuth();
+    }
+    
     loadRecentCommits();
     loadStats();
     setupEventListeners();
@@ -14,10 +23,14 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         loadRecentCommits(true); // silent = true for auto-refresh
         loadStats(true); // silent = true for auto-refresh
+        if (authToken) {
+            loadMyKeys(true); // silent refresh
+        }
     }, 10000);
 });
 
 function setupEventListeners() {
+    // Search and explorer
     document.getElementById('searchBtn').addEventListener('click', handleSearch);
     document.getElementById('searchInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -26,7 +39,6 @@ function setupEventListeners() {
     });
     document.getElementById('refreshBtn').addEventListener('click', (e) => {
         e.preventDefault();
-        // Add a visual feedback (manual refresh always shows feedback)
         const btn = e.target;
         const originalText = btn.textContent;
         btn.textContent = '🔄 Refreshing...';
@@ -41,6 +53,48 @@ function setupEventListeners() {
     });
     document.getElementById('clearSearchBtn').addEventListener('click', clearSearch);
     document.getElementById('closeChainBtn').addEventListener('click', closeChain);
+    
+    // Authentication
+    const loginBtn = document.getElementById('loginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const loginForm = document.getElementById('loginForm');
+    const registerForm = document.getElementById('registerForm');
+    
+    if (loginBtn) loginBtn.addEventListener('click', () => openModal('loginModal'));
+    if (registerBtn) registerBtn.addEventListener('click', () => openModal('registerModal'));
+    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+    if (loginForm) loginForm.addEventListener('submit', handleLogin);
+    if (registerForm) registerForm.addEventListener('submit', handleRegister);
+    
+    // Modal close
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const modalId = btn.getAttribute('data-modal');
+            closeModal(modalId);
+        });
+    });
+    
+    // Close modal on outside click
+    window.addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal')) {
+            closeModal(e.target.id);
+        }
+    });
+    
+    // Tabs
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabName = btn.getAttribute('data-tab');
+            switchTab(tabName);
+        });
+    });
+    
+    // My Keys
+    const generateKeyBtn = document.getElementById('generateKeyBtn');
+    const signBtn = document.getElementById('signBtn');
+    if (generateKeyBtn) generateKeyBtn.addEventListener('click', handleGenerateKey);
+    if (signBtn) signBtn.addEventListener('click', handleSignMessage);
 }
 
 // Compare two commit arrays to see if they're the same
