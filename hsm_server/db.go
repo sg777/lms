@@ -152,6 +152,28 @@ func (kdb *KeyDB) UpdateKeyIndex(keyID string, newIndex uint64) error {
 	})
 }
 
+// DeleteAllKeys deletes all keys from the database
+func (kdb *KeyDB) DeleteAllKeys() error {
+	kdb.mu.Lock()
+	defer kdb.mu.Unlock()
+
+	return kdb.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketName))
+		if bucket == nil {
+			return nil // Bucket doesn't exist, nothing to delete
+		}
+		
+		// Delete the bucket and recreate it (fastest way to clear all keys)
+		if err := tx.DeleteBucket([]byte(bucketName)); err != nil {
+			return fmt.Errorf("failed to delete bucket: %v", err)
+		}
+		
+		// Recreate the bucket
+		_, err := tx.CreateBucket([]byte(bucketName))
+		return err
+	})
+}
+
 // Close closes the database
 func (kdb *KeyDB) Close() error {
 	kdb.mu.Lock()

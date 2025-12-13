@@ -237,6 +237,38 @@ func (s *HSMServer) handleListKeys(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// handleDeleteAllKeys handles requests to delete all keys
+func (s *HSMServer) handleDeleteAllKeys(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Delete all keys from database
+	if err := s.db.DeleteAllKeys(); err != nil {
+		response := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to delete keys: %v", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Clear in-memory cache
+	s.mu.Lock()
+	s.keys = make(map[string]*LMSKey)
+	s.mu.Unlock()
+
+	response := map[string]interface{}{
+		"success": true,
+		"message": "All keys deleted successfully",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // Start starts the HSM server
 func (s *HSMServer) Start() error {
 	mux := http.NewServeMux()
@@ -244,6 +276,7 @@ func (s *HSMServer) Start() error {
 	mux.HandleFunc("/generate_key", s.handleGenerateKey)
 	mux.HandleFunc("/list_keys", s.handleListKeys)
 	mux.HandleFunc("/sign", s.handleSign)
+	mux.HandleFunc("/delete_all_keys", s.handleDeleteAllKeys)
 	
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("HSM Server starting on %s", addr)

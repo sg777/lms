@@ -223,6 +223,47 @@ func QueryKeyIndex(raftEndpoint, keyID string) (uint64, bool, error) {
 	return uint64(index), true, nil
 }
 
+// DeleteAllKeysResponse is the response from deleting all keys
+type DeleteAllKeysResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// DeleteAllKeys deletes all keys from the HSM server
+func (c *HSMClient) DeleteAllKeys() error {
+	url := fmt.Sprintf("%s/delete_all_keys", c.serverURL)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to connect to HSM server: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		var errorResp DeleteAllKeysResponse
+		json.Unmarshal(body, &errorResp)
+		return fmt.Errorf("HSM server error: %s", errorResp.Error)
+	}
+
+	var response DeleteAllKeysResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	if !response.Success {
+		return fmt.Errorf("delete all keys failed: %s", response.Error)
+	}
+
+	return nil
+}
+
 // VerifySignature verifies an LMS signature
 // Returns true if signature is valid, false otherwise
 func VerifySignature(publicKey []byte, message string, signatureBase64 string) (bool, error) {

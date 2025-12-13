@@ -98,6 +98,13 @@ func main() {
 			fmt.Printf("Status: Not found (no index committed yet)\n")
 		}
 		
+	case "delete-all":
+		err := client.DeleteAllKeys()
+		if err != nil {
+			log.Fatalf("Failed to delete all keys: %v", err)
+		}
+		fmt.Println("✅ All keys deleted successfully")
+		
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)
 		printHelp()
@@ -117,6 +124,7 @@ func printHelp() {
 	fmt.Println("  list              List all available keys")
 	fmt.Println("  sign              Sign a message with key_id")
 	fmt.Println("  query             Query Raft cluster for key_id's last index")
+	fmt.Println("  delete-all        Delete all keys from HSM server (WARNING: irreversible)")
 	fmt.Println()
 	fmt.Println("Flags:")
 	fmt.Println("  -server URL       HSM server URL (default: http://localhost:9090)")
@@ -132,5 +140,6 @@ func printHelp() {
 	fmt.Println("  ./hsm-client list -server http://159.69.23.29:9090")
 	fmt.Println("  ./hsm-client sign -key-id my_key -msg 'hello world' -server http://159.69.23.29:9090")
 	fmt.Println("  ./hsm-client query -key-id my_key -raft http://159.69.23.29:8080")
+	fmt.Println("  ./hsm-client delete-all -server http://159.69.23.29:9090")
 }
 
