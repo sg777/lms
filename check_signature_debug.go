@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -31,7 +32,6 @@ func main() {
 	fmt.Printf("Hash: %x\n", hash)
 
 	// Sign
-	import "crypto/rand"
 	signature, _ := ecdsa.SignASN1(rand.Reader, privKey, hash[:])
 	sigBase64 := base64.StdEncoding.EncodeToString(signature)
 
