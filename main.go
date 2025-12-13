@@ -276,76 +276,14 @@ func main() {
 			continue
 		}
 
-		// Check if this node is the leader
-		isLeader := (raft.State().String() == "Leader")
-		if !isLeader {
-			// Not the leader - forward to leader via HTTP API
-			leaderID := ""
-			leaderAPIAddr := ""
-			for _, node := range cfg.ClusterNodes {
-				if string(leaderAddr) == node.Address {
-					leaderID = node.ID
-					ip := node.Address[:len(node.Address)-5] // Remove ":7000"
-					leaderAPIAddr = fmt.Sprintf("http://%s:%d", ip, node.APIPort)
-					break
-				}
-			}
-			
-			if leaderAPIAddr != "" {
-				fmt.Printf("📤 Forwarding message to leader (%s)...\n", leaderID)
-				
-				// Create a simple message request (as JSON for the API)
-				// For now, we'll send it as a simple string via a custom endpoint
-				// Or we can use the propose endpoint with a simple format
-				
-				// Actually, let's use Raft directly but through the leader's Raft instance
-				// Wait, we can't access leader's Raft from here. We need HTTP API.
-				
-				// Create request body - send as simple string message
-				reqBody := map[string]interface{}{
-					"message": input,
-				}
-				jsonData, err := json.Marshal(reqBody)
-				if err != nil {
-					fmt.Printf("❌ Failed to encode message: %v\n", err)
-					continue
-				}
-				
-				// Send to leader's /send endpoint (we'll create this)
-				resp, err := http.Post(leaderAPIAddr+"/send", "application/json", bytes.NewBuffer(jsonData))
-				if err != nil {
-					fmt.Printf("❌ Failed to forward to leader: %v\n", err)
-					fmt.Printf("💡 Leader is %s at %s\n", leaderID, leaderAPIAddr)
-					continue
-				}
-				defer resp.Body.Close()
-				
-				if resp.StatusCode == http.StatusOK {
-					var result map[string]interface{}
-					if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
-						fmt.Printf("✅ Message forwarded and applied: %v\n", result)
-					} else {
-						fmt.Printf("✅ Message forwarded to leader\n")
-					}
-				} else {
-					body, _ := io.ReadAll(resp.Body)
-					fmt.Printf("❌ Leader returned error: %s\n", string(body))
-				}
-				continue
-			} else {
-				fmt.Printf("⚠️  Not the leader (leader is %s). Cannot determine leader address.\n", leaderAddr)
-				continue
-			}
-		}
-
-		// This node is the leader - apply directly
-		fmt.Printf("📤 Sending message to cluster...\n")
-		future := raft.Apply([]byte(input), 5*time.Second)
-		if err := future.Error(); err != nil {
-			fmt.Printf("❌ Failed to apply log: %v\n", err)
-		} else {
-			fmt.Printf("✅ Applied: %v\n", future.Response())
-		}
+		// SECURITY: Direct commits from CLI are DISABLED
+		// Only /commit_index endpoint with EC signature authentication is allowed
+		// This service only accepts LMS index-related messages from HSM server
+		fmt.Printf("❌ SECURITY: Direct commits are not allowed.\n")
+		fmt.Printf("   This service only accepts LMS index-related messages.\n")
+		fmt.Printf("   Use /commit_index endpoint with proper EC signature authentication.\n")
+		fmt.Printf("   Only HSM server with attestation private key can commit.\n")
+		continue
 	}
 
 	// Shutdown
