@@ -40,6 +40,9 @@ Thumbs.db
 tmp/
 temp/
 
+# HSM server database
+hsm-data/
+
 # Binaries
 hsm-client
 hsm-server
