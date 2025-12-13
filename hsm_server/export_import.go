@@ -157,7 +157,7 @@ func (s *HSMServer) handleImportKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate required fields
-	if len(req.PrivateKey) == 0 {
+	if req.PrivateKey == "" {
 		response := ImportKeyResponse{
 			Success: false,
 			Error:   "private_key is required",
@@ -168,7 +168,7 @@ func (s *HSMServer) handleImportKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.PublicKey) == 0 {
+	if req.PublicKey == "" {
 		response := ImportKeyResponse{
 			Success: false,
 			Error:   "public_key is required",

@@ -145,6 +145,20 @@ function copyToClipboard(text) {
     });
 }
 
+// Download signature as JSON file
+function downloadSignature(keyId, signatureObj) {
+    const jsonStr = JSON.stringify(signatureObj, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `signature_${keyId}_index${signatureObj.index || 'unknown'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 // View chain after signing (switches to explorer tab)
 function viewChainAfterSign(keyId) {
     // Switch to explorer tab first
@@ -245,20 +259,27 @@ async function handleSignMessage() {
         const data = await response.json();
         
         if (data.success) {
-            const signature = data.signature || '';
-            const index = data.index !== undefined ? data.index : 'N/A';
+            const sig = data.signature || {};
+            const index = data.index !== undefined ? data.index : (sig.index !== undefined ? sig.index : 'N/A');
+            const responseKeyId = data.key_id || keyID;
+            
+            // Format signature as JSON
+            const signatureJSON = JSON.stringify(sig, null, 2);
             
             resultDiv.innerHTML = `
                 <div class="success-message">
-                    <strong>Message signed successfully!</strong><br><br>
-                    <strong>Key ID:</strong> ${escapeHtml(data.key_id || keyID)}<br>
+                    <strong>✅ Message signed successfully!</strong><br><br>
+                    <strong>Key ID:</strong> ${escapeHtml(responseKeyId)}<br>
                     <strong>Index Used:</strong> ${index}<br><br>
-                    <strong>Signature (full):</strong><br>
-                    <div style="background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 10px 0; word-break: break-all; font-family: monospace; font-size: 0.9em; max-height: 200px; overflow-y: auto;">
-                        ${escapeHtml(signature)}
+                    <strong>Signature (structured JSON, copyable):</strong><br>
+                    <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin: 10px 0; word-break: break-all; font-family: 'Courier New', monospace; font-size: 0.85em; max-height: 300px; overflow-y: auto; border: 1px solid #ddd; cursor: text;" onclick="this.select(); document.execCommand('copy');" title="Click to select all, then copy">
+                        ${escapeHtml(signatureJSON)}
                     </div>
-                    <button onclick="copyToClipboard('${escapeHtml(signature).replace(/'/g, "\\'")}')" class="auth-btn" style="margin-right: 10px;">📋 Copy Signature</button>
-                    <button class="auth-btn" onclick="viewChainAfterSign('${escapeHtml(data.key_id || keyID).replace(/'/g, "\\'")}')">View Chain</button>
+                    <div style="margin-top: 10px;">
+                        <button onclick="copyToClipboard('${escapeHtml(signatureJSON).replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n')}')" class="auth-btn" style="margin-right: 10px;">📋 Copy Signature</button>
+                        <button onclick="downloadSignature('${escapeHtml(responseKeyId).replace(/'/g, "\\'").replace(/"/g, '&quot;')}', ${escapeHtml(JSON.stringify(sig)).replace(/'/g, "\\'").replace(/"/g, '&quot;')})" class="auth-btn" style="margin-right: 10px;">💾 Download Signature</button>
+                        <button class="auth-btn" onclick="viewChainAfterSign('${escapeHtml(responseKeyId).replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">🔗 View Chain</button>
+                    </div>
                 </div>
             `;
             resultDiv.style.display = 'block';

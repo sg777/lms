@@ -320,3 +320,57 @@ func (s *ExplorerServer) handleDeleteKey(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 }
+
+// handleVerify verifies a signature for the authenticated user
+func (s *ExplorerServer) handleVerify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get user from token
+	tokenString := extractTokenFromHeader(r)
+	if tokenString == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	claims, err := ValidateToken(tokenString)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Read request body
+	var reqBody map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Add user_id to request for key ownership verification (if key_id provided)
+	reqBody["user_id"] = claims.UserID
+
+	// Forward request to HSM server
+	jsonData, _ := json.Marshal(reqBody)
+	url := fmt.Sprintf("%s/verify", s.hsmEndpoint)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create request: %v", err), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tokenString)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to connect to HSM server: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}

@@ -26,11 +26,18 @@ type SignRequest struct {
 
 // SignResponse is the response from signing
 type SignResponse struct {
-	Success   bool   `json:"success"`
-	KeyID     string `json:"key_id,omitempty"`
-	Index     uint64 `json:"index,omitempty"`
-	Signature string `json:"signature"` // Empty for now
-	Error     string `json:"error,omitempty"`
+	Success   bool                 `json:"success"`
+	KeyID     string               `json:"key_id,omitempty"`
+	Index     uint64               `json:"index,omitempty"`
+	Signature *StructuredSignature `json:"signature,omitempty"` // Structured signature with pubkey, index, signature
+	Error     string               `json:"error,omitempty"`
+}
+
+// StructuredSignature represents the self-contained signature format
+type StructuredSignature struct {
+	PublicKey string `json:"pubkey"`   // Base64-encoded LMS public key
+	Index     uint64 `json:"index"`    // LMS index used for this signature
+	Signature string `json:"signature"` // Base64-encoded LMS signature
 }
 
 // queryRaftForKeyIndex queries Raft cluster for key_id's last index and hash
