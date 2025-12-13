@@ -152,6 +152,7 @@ func (s *APIServer) buildChainFromRaftLog(keyID string) ([]map[string]interface{
 			for i, entry := range entries {
 				entryMap := map[string]interface{}{
 					"key_id":        entry.KeyID,
+					"pubkey_hash":   entry.PubkeyHash, // Phase B: primary identifier
 					"index":         entry.Index,
 					"previous_hash": entry.PreviousHash, // Hash from previous entry (or genesis)
 					"hash":          entry.Hash,         // Hash of THIS entry (will be previous_hash for next)
