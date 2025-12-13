@@ -88,7 +88,10 @@ func (a *AuthServer) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate input
+	// Validate and normalize input (trim whitespace)
+	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strings.TrimSpace(req.Email)
+	
 	if req.Username == "" {
 		response := AuthResponse{
 			Success: false,
@@ -204,6 +207,19 @@ func (a *AuthServer) Login(w http.ResponseWriter, r *http.Request) {
 		response := AuthResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Invalid request: %v", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Normalize username (trim whitespace)
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" {
+		response := AuthResponse{
+			Success: false,
+			Error:   "username is required",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
