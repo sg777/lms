@@ -8,20 +8,22 @@ A standalone web-based explorer for browsing and searching the LMS hash chain st
 
 ```bash
 cd /root/lms
-go build -o explorer ./cmd/explorer
+go build -o lms-explorer ./cmd/explorer
 ```
+
+This will create the `lms-explorer` binary in the current directory.
 
 ### 2. Start the Explorer
 
 The explorer needs to know where your Raft cluster nodes are running. Specify the API endpoints:
 
 ```bash
-./explorer -port 8081 -raft-endpoints "http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080"
+./lms-explorer -port 8081 -raft-endpoints "http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080"
 ```
 
 **Or use defaults** (if your cluster uses the default IPs):
 ```bash
-./explorer
+./lms-explorer
 ```
 
 The defaults are: `http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080`
@@ -141,7 +143,7 @@ When viewing a chain, you'll see:
 
 1. **Start the explorer:**
    ```bash
-   ./explorer -port 8081
+   ./lms-explorer -port 8081
    ```
 
 2. **Open browser:**
