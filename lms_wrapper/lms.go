@@ -52,14 +52,153 @@ bool go_update_private_key_during_sign(unsigned char *private_key, size_t len_pr
 import "C"
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"unsafe"
 )
 
+// Parameter set constants (matching Cisco hash-sigs definitions)
+const (
+	// LMS Types (height values)
+	LMS_SHA256_M32_H5  = 5  // Height 5, ~32 signatures
+	LMS_SHA256_M32_H10 = 6  // Height 10, ~1024 signatures
+	LMS_SHA256_M32_H15 = 7  // Height 15, ~32768 signatures
+	LMS_SHA256_M32_H20 = 8  // Height 20, ~1M signatures
+	LMS_SHA256_M32_H25 = 9  // Height 25, ~33M signatures
+	
+	// OTS Types (Winternitz parameter values)
+	LMOTS_SHA256_N32_W1 = 1  // w=1
+	LMOTS_SHA256_N32_W2 = 2  // w=2
+	LMOTS_SHA256_N32_W4 = 3  // w=4
+	LMOTS_SHA256_N32_W8 = 4  // w=8
+)
+
+// GetLMSHeight returns the height (h) value for an LMS parameter set
+func GetLMSHeight(lmType int) int {
+	switch lmType {
+	case LMS_SHA256_M32_H5:
+		return 5
+	case LMS_SHA256_M32_H10:
+		return 10
+	case LMS_SHA256_M32_H15:
+		return 15
+	case LMS_SHA256_M32_H20:
+		return 20
+	case LMS_SHA256_M32_H25:
+		return 25
+	default:
+		return -1
+	}
+}
+
+// GetOTSW returns the Winternitz parameter (w) value for an OTS parameter set
+func GetOTSW(otsType int) int {
+	switch otsType {
+	case LMOTS_SHA256_N32_W1:
+		return 1
+	case LMOTS_SHA256_N32_W2:
+		return 2
+	case LMOTS_SHA256_N32_W4:
+		return 4
+	case LMOTS_SHA256_N32_W8:
+		return 8
+	default:
+		return -1
+	}
+}
+
+// GetMaxSignatures returns the maximum number of signatures for an LMS parameter set
+func GetMaxSignatures(lmType int) int {
+	h := GetLMSHeight(lmType)
+	if h < 0 {
+		return -1
+	}
+	// 2^h signatures
+	result := 1
+	for i := 0; i < h; i++ {
+		result *= 2
+	}
+	return result
+}
+
+// FormatParameterSet returns a human-readable description of parameter sets
+func FormatParameterSet(levels int, lmType []int, otsType []int) string {
+	if len(lmType) != levels || len(otsType) != levels {
+		return "invalid parameter set"
+	}
+	
+	var desc string
+	if levels == 1 {
+		h := GetLMSHeight(lmType[0])
+		w := GetOTSW(otsType[0])
+		maxSigs := GetMaxSignatures(lmType[0])
+		desc = fmt.Sprintf("LMS: h=%d, w=%d (max %d signatures)", h, w, maxSigs)
+	} else {
+		desc = fmt.Sprintf("HSS: %d levels", levels)
+		for i := 0; i < levels; i++ {
+			h := GetLMSHeight(lmType[i])
+			w := GetOTSW(otsType[i])
+			if i > 0 {
+				desc += ", "
+			}
+			desc += fmt.Sprintf("L%d: h=%d, w=%d", i, h, w)
+		}
+	}
+	return desc
+}
+
+// GetSignatureLen returns the expected signature length for given parameters
+func GetSignatureLen(levels int, lmType []int, otsType []int) (int, error) {
+	if len(lmType) != levels || len(otsType) != levels {
+		return 0, errors.New("parameter arrays must match levels")
+	}
+	
+	cLmType := make([]C.ulong, len(lmType))
+	cOtsType := make([]C.ulong, len(otsType))
+	for i, v := range lmType {
+		cLmType[i] = C.ulong(v)
+	}
+	for i, v := range otsType {
+		cOtsType[i] = C.ulong(v)
+	}
+	
+	sigLen := C.hss_get_signature_len(C.uint(levels), &cLmType[0], &cOtsType[0])
+	if sigLen <= 0 {
+		return 0, errors.New("invalid parameter set")
+	}
+	
+	return int(sigLen), nil
+}
+
+// GetPublicKeyLen returns the expected public key length for given parameters
+func GetPublicKeyLen(levels int, lmType []int, otsType []int) (int, error) {
+	if len(lmType) != levels || len(otsType) != levels {
+		return 0, errors.New("parameter arrays must match levels")
+	}
+	
+	cLmType := make([]C.ulong, len(lmType))
+	cOtsType := make([]C.ulong, len(otsType))
+	for i, v := range lmType {
+		cLmType[i] = C.ulong(v)
+	}
+	for i, v := range otsType {
+		cOtsType[i] = C.ulong(v)
+	}
+	
+	pubKeyLen := C.hss_get_public_key_len(C.uint(levels), &cLmType[0], &cOtsType[0])
+	if pubKeyLen <= 0 {
+		return 0, errors.New("invalid parameter set")
+	}
+	
+	return int(pubKeyLen), nil
+}
+
 // GenerateKeyPair generates a new HSS/LMS key pair
 // levels: number of levels (typically 1 for LMS, 1-8 for HSS)
-// lmType: LMS parameter set array (one per level) - values like 5 for LMS_SHA256_M32_H5
-// otsType: OTS parameter set array (one per level) - values like 1 for LMOTS_SHA256_N32_W1
+// lmType: LMS parameter set array (one per level) - use constants like LMS_SHA256_M32_H5
+// otsType: OTS parameter set array (one per level) - use constants like LMOTS_SHA256_N32_W1
+// Returns: (privateKey, publicKey, error)
+// Use FormatParameterSet() to get a human-readable description of the parameters
 func GenerateKeyPair(levels int, lmType []int, otsType []int) ([]byte, []byte, error) {
 	if len(lmType) != levels || len(otsType) != levels {
 		return nil, nil, errors.New("parameter arrays must match levels")
