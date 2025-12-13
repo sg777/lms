@@ -248,13 +248,24 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Key exists, use next index and previous entry's hash
+		// Key exists, use next index and previous entry's stored hash
 		indexToUse = lastIndex + 1
-		previousHash = lastHash
-		if previousHash == "" {
-			// Fallback: if hash not available, use genesis (shouldn't happen, but safe fallback)
-			previousHash = fsm.GenesisHash
+		
+		// MUST use the stored hash from previous entry - never recompute or fallback
+		if lastHash == "" {
+			response := SignResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Previous entry hash not found for key_id %s (index %d). Cannot continue hash chain.", req.KeyID, lastIndex),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(response)
+			return
 		}
+		
+		// Use the actual stored hash from the previous commit
+		previousHash = lastHash
+		
 		// Commit the new index
 		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash); err != nil {
 			response := SignResponse{

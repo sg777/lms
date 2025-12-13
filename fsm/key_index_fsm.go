@@ -156,7 +156,8 @@ func (f *KeyIndexFSM) Apply(l *raft.Log) interface{} {
 			entry.Index, currentIndex, entry.KeyID)
 	}
 
-	// Store the index and hash
+	// Store the index and hash (the hash is the actual hash of this commit, computed above)
+	// This stored hash will be used as previous_hash for the next entry - never recomputed
 	f.keyIndices[entry.KeyID] = entry.Index
 	f.keyHashes[entry.KeyID] = entry.Hash
 
@@ -266,12 +267,13 @@ func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 	return nil
 }
 
-// validateHashChain validates that the previous_hash matches the hash of the previous entry
+// validateHashChain validates that the previous_hash matches the stored hash from the previous entry
+// We use the stored hash directly - never recompute it
 func (f *KeyIndexFSM) validateHashChain(entry *KeyIndexEntry) error {
 	lastHash, exists := f.keyHashes[entry.KeyID]
 
 	if !exists {
-		// First entry for this key_id: previous_hash should be genesis
+		// First entry for this key_id: previous_hash must be genesis
 		if entry.PreviousHash != GenesisHash {
 			return fmt.Errorf("first entry previous_hash mismatch: expected %s (genesis), got %s",
 				GenesisHash, entry.PreviousHash)
@@ -279,9 +281,10 @@ func (f *KeyIndexFSM) validateHashChain(entry *KeyIndexEntry) error {
 		return nil
 	}
 
-	// Not the first entry: previous_hash must match last entry's hash
+	// Not the first entry: previous_hash MUST match the stored hash from the previous entry
+	// We use the stored hash directly - it's the actual hash that was computed and stored when that entry was committed
 	if entry.PreviousHash != lastHash {
-		return fmt.Errorf("hash chain broken: expected previous_hash %s, got %s",
+		return fmt.Errorf("hash chain broken: expected previous_hash %s (stored from previous commit), got %s",
 			lastHash, entry.PreviousHash)
 	}
 
