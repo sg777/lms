@@ -20,9 +20,20 @@ function setupEventListeners() {
             handleSearch();
         }
     });
-    document.getElementById('refreshBtn').addEventListener('click', () => {
-        loadRecentCommits();
-        loadStats();
+    document.getElementById('refreshBtn').addEventListener('click', (e) => {
+        e.preventDefault();
+        // Add a visual feedback
+        const btn = e.target;
+        const originalText = btn.textContent;
+        btn.textContent = '🔄 Refreshing...';
+        btn.disabled = true;
+        
+        Promise.all([loadRecentCommits(), loadStats()]).finally(() => {
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }, 500);
+        });
     });
     document.getElementById('clearSearchBtn').addEventListener('click', clearSearch);
     document.getElementById('closeChainBtn').addEventListener('click', closeChain);
@@ -30,13 +41,30 @@ function setupEventListeners() {
 
 async function loadRecentCommits() {
     const container = document.getElementById('recentCommits');
-    container.innerHTML = '<div class="loading">Loading recent commits...</div>';
+    
+    // Add loading overlay instead of replacing content
+    const existingTable = container.querySelector('table');
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'loading-overlay';
+    loadingDiv.innerHTML = '<div class="loading">Refreshing...</div>';
+    
+    // If table exists, add overlay; otherwise replace content
+    if (existingTable) {
+        container.appendChild(loadingDiv);
+        loadingDiv.style.opacity = '0';
+        setTimeout(() => loadingDiv.style.opacity = '1', 10);
+    } else {
+        container.innerHTML = '<div class="loading">Loading recent commits...</div>';
+    }
 
     try {
         const response = await fetch(`${API_BASE}/api/recent?limit=50`);
         const data = await response.json();
 
         if (!data.success || !data.commits || data.commits.length === 0) {
+            if (loadingDiv.parentNode) {
+                container.removeChild(loadingDiv);
+            }
             container.innerHTML = '<div class="error">No commits found</div>';
             return;
         }
@@ -48,7 +76,7 @@ async function loadRecentCommits() {
             const prevHashShort = commit.previous_hash ? truncateHash(commit.previous_hash, 20) : '-';
             
             html += `
-                <tr onclick="viewChain('${commit.key_id}')">
+                <tr onclick="viewChain('${escapeHtml(commit.key_id)}')">
                     <td><strong>${escapeHtml(commit.key_id)}</strong></td>
                     <td>${commit.index}</td>
                     <td class="hash-cell" title="${commit.hash || ''}">${hashShort}</td>
@@ -58,8 +86,29 @@ async function loadRecentCommits() {
         });
 
         html += '</tbody></table>';
-        container.innerHTML = html;
+        
+        // Fade out old content, fade in new content
+        if (existingTable) {
+            existingTable.style.opacity = '0';
+            loadingDiv.style.opacity = '0';
+            setTimeout(() => {
+                container.innerHTML = html;
+                const newTable = container.querySelector('table');
+                if (newTable) {
+                    newTable.style.opacity = '0';
+                    setTimeout(() => {
+                        newTable.style.transition = 'opacity 0.3s ease-in';
+                        newTable.style.opacity = '1';
+                    }, 50);
+                }
+            }, 200);
+        } else {
+            container.innerHTML = html;
+        }
     } catch (error) {
+        if (loadingDiv.parentNode) {
+            container.removeChild(loadingDiv);
+        }
         container.innerHTML = `<div class="error">Error loading commits: ${error.message}</div>`;
     }
 }
@@ -74,17 +123,29 @@ async function loadStats() {
         }
 
         const stats = data.stats;
-        document.getElementById('statTotalKeys').textContent = stats.total_keys || 0;
-        document.getElementById('statTotalCommits').textContent = stats.total_commits || 0;
-        document.getElementById('statValidChains').textContent = stats.valid_chains || 0;
-        document.getElementById('statBrokenChains').textContent = stats.broken_chains || 0;
         
-        if (stats.last_commit) {
-            const date = new Date(stats.last_commit);
-            document.getElementById('statLastUpdate').textContent = date.toLocaleString();
-        } else {
-            document.getElementById('statLastUpdate').textContent = 'Never';
-        }
+        // Smoothly update stats with fade transition
+        const updateStat = (id, value) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.style.transition = 'opacity 0.2s ease-in';
+                element.style.opacity = '0.5';
+                setTimeout(() => {
+                    element.textContent = value;
+                    element.style.opacity = '1';
+                }, 100);
+            }
+        };
+        
+        updateStat('statTotalKeys', stats.total_keys || 0);
+        updateStat('statTotalCommits', stats.total_commits || 0);
+        updateStat('statValidChains', stats.valid_chains || 0);
+        updateStat('statBrokenChains', stats.broken_chains || 0);
+        
+        const lastUpdateText = stats.last_commit 
+            ? new Date(stats.last_commit).toLocaleString()
+            : 'Never';
+        updateStat('statLastUpdate', lastUpdateText);
     } catch (error) {
         console.error('Error loading stats:', error);
     }

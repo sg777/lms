@@ -169,6 +169,8 @@ header h1 {
 /* Table */
 .table-container {
     overflow-x: auto;
+    position: relative;
+    min-height: 200px;
 }
 
 table {
@@ -307,6 +309,30 @@ tbody tr:last-child td {
     padding: 40px;
     color: #666;
     font-size: 1.1em;
+}
+
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    transition: opacity 0.3s ease-in;
+    border-radius: 8px;
+}
+
+.table-container {
+    position: relative;
+}
+
+/* Smooth transitions for table */
+table {
+    transition: opacity 0.3s ease-in;
 }
 
 /* Error */
