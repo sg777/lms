@@ -75,8 +75,9 @@ async function loadRecentCommits() {
             const hashShort = commit.hash ? truncateHash(commit.hash, 20) : '-';
             const prevHashShort = commit.previous_hash ? truncateHash(commit.previous_hash, 20) : '-';
             
+            const keyIdEscaped = escapeHtml(commit.key_id).replace(/'/g, "\\'");
             html += `
-                <tr onclick="viewChain('${escapeHtml(commit.key_id)}')">
+                <tr onclick="viewChain('${keyIdEscaped}')">
                     <td><strong>${escapeHtml(commit.key_id)}</strong></td>
                     <td>${commit.index}</td>
                     <td class="hash-cell" title="${commit.hash || ''}">${hashShort}</td>
