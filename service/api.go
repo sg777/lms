@@ -62,7 +62,8 @@ func (s *APIServer) Start() error {
 	mux.HandleFunc("/list", s.handleList)
 	mux.HandleFunc("/send", s.handleSend)
 	mux.HandleFunc("/keys", s.handleKeys) // Get all key IDs
-	mux.HandleFunc("/key/", s.handleKeyIndex) // /key/<key_id>/index
+	mux.HandleFunc("/key/", s.handleKeyIndex) // /key/<key_id>/index (backward compatibility)
+	mux.HandleFunc("/pubkey_hash/", s.handlePubkeyHashIndex) // /pubkey_hash/<pubkey_hash>/index (Phase B)
 	mux.HandleFunc("/commit_index", s.handleCommitIndex)
 	
 	addr := fmt.Sprintf(":%d", s.config.APIPort)

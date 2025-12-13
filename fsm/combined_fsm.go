@@ -122,6 +122,14 @@ func (f *CombinedFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
 	return f.keyIndexFSM.GetKeyChain(keyID)
 }
 
+func (f *CombinedFSM) GetIndexAndHashByPubkeyHash(pubkeyHash string) (uint64, string, bool) {
+	return f.keyIndexFSM.GetIndexAndHashByPubkeyHash(pubkeyHash)
+}
+
+func (f *CombinedFSM) GetChainByPubkeyHash(pubkeyHash string) ([]*KeyIndexEntry, bool) {
+	return f.keyIndexFSM.GetChainByPubkeyHash(pubkeyHash)
+}
+
 type combinedSnapshot struct {
 	hashChainSnapshot raft.FSMSnapshot
 	keyIndexSnapshot  raft.FSMSnapshot
