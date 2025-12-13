@@ -1,15 +1,19 @@
 const API_BASE = window.location.origin;
 
+// Store current data for comparison
+let currentCommits = null;
+let currentStats = null;
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadRecentCommits();
     loadStats();
     setupEventListeners();
     
-    // Auto-refresh every 10 seconds
+    // Auto-refresh every 10 seconds (silent if no changes)
     setInterval(() => {
-        loadRecentCommits();
-        loadStats();
+        loadRecentCommits(true); // silent = true for auto-refresh
+        loadStats(true); // silent = true for auto-refresh
     }, 10000);
 });
 
@@ -22,13 +26,13 @@ function setupEventListeners() {
     });
     document.getElementById('refreshBtn').addEventListener('click', (e) => {
         e.preventDefault();
-        // Add a visual feedback
+        // Add a visual feedback (manual refresh always shows feedback)
         const btn = e.target;
         const originalText = btn.textContent;
         btn.textContent = '🔄 Refreshing...';
         btn.disabled = true;
         
-        Promise.all([loadRecentCommits(), loadStats()]).finally(() => {
+        Promise.all([loadRecentCommits(false), loadStats(false)]).finally(() => {
             setTimeout(() => {
                 btn.textContent = originalText;
                 btn.disabled = false;
@@ -39,34 +43,68 @@ function setupEventListeners() {
     document.getElementById('closeChainBtn').addEventListener('click', closeChain);
 }
 
-async function loadRecentCommits() {
+// Compare two commit arrays to see if they're the same
+function commitsEqual(commits1, commits2) {
+    if (!commits1 || !commits2) return false;
+    if (commits1.length !== commits2.length) return false;
+    
+    // Compare by key_id + index + hash (quick comparison)
+    for (let i = 0; i < commits1.length; i++) {
+        const c1 = commits1[i];
+        const c2 = commits2[i];
+        if (c1.key_id !== c2.key_id || 
+            c1.index !== c2.index || 
+            c1.hash !== c2.hash) {
+            return false;
+        }
+    }
+    return true;
+}
+
+async function loadRecentCommits(silent = false) {
     const container = document.getElementById('recentCommits');
     
-    // Add loading overlay instead of replacing content
-    const existingTable = container.querySelector('table');
-    const loadingDiv = document.createElement('div');
-    loadingDiv.className = 'loading-overlay';
-    loadingDiv.innerHTML = '<div class="loading">Refreshing...</div>';
-    
-    // If table exists, add overlay; otherwise replace content
-    if (existingTable) {
-        container.appendChild(loadingDiv);
-        loadingDiv.style.opacity = '0';
-        setTimeout(() => loadingDiv.style.opacity = '1', 10);
-    } else {
-        container.innerHTML = '<div class="loading">Loading recent commits...</div>';
-    }
-
     try {
         const response = await fetch(`${API_BASE}/api/recent?limit=50`);
         const data = await response.json();
 
         if (!data.success || !data.commits || data.commits.length === 0) {
-            if (loadingDiv.parentNode) {
-                container.removeChild(loadingDiv);
+            if (!currentCommits) {
+                // Only show error if we don't have any data yet
+                container.innerHTML = '<div class="error">No commits found</div>';
             }
-            container.innerHTML = '<div class="error">No commits found</div>';
             return;
+        }
+
+        // Check if data has changed
+        const hasChanged = !commitsEqual(currentCommits, data.commits);
+        
+        // If silent mode and no changes, do nothing
+        if (silent && !hasChanged) {
+            return;
+        }
+
+        // Store current data
+        currentCommits = data.commits;
+
+        // If no changes and not first load, skip UI update
+        if (!hasChanged && container.querySelector('table')) {
+            return;
+        }
+
+        // Show loading only if we have existing content and not in silent mode
+        const existingTable = container.querySelector('table');
+        let loadingDiv = null;
+        
+        if (!silent && existingTable) {
+            loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading-overlay';
+            loadingDiv.innerHTML = '<div class="loading">Refreshing...</div>';
+            container.appendChild(loadingDiv);
+            loadingDiv.style.opacity = '0';
+            setTimeout(() => loadingDiv.style.opacity = '1', 10);
+        } else if (!existingTable) {
+            container.innerHTML = '<div class="loading">Loading recent commits...</div>';
         }
 
         let html = '<table><thead><tr><th>Key ID</th><th>Index</th><th>Hash</th><th>Previous Hash</th></tr></thead><tbody>';
@@ -88,10 +126,10 @@ async function loadRecentCommits() {
 
         html += '</tbody></table>';
         
-        // Fade out old content, fade in new content
-        if (existingTable) {
+        // Update UI only if we're not in silent mode or if data changed
+        if (existingTable && !silent) {
             existingTable.style.opacity = '0';
-            loadingDiv.style.opacity = '0';
+            if (loadingDiv) loadingDiv.style.opacity = '0';
             setTimeout(() => {
                 container.innerHTML = html;
                 const newTable = container.querySelector('table');
@@ -103,18 +141,28 @@ async function loadRecentCommits() {
                     }, 50);
                 }
             }, 200);
-        } else {
+        } else if (!existingTable || hasChanged) {
+            // First load or data changed - update immediately
             container.innerHTML = html;
         }
     } catch (error) {
-        if (loadingDiv.parentNode) {
-            container.removeChild(loadingDiv);
+        if (!silent) {
+            container.innerHTML = `<div class="error">Error loading commits: ${error.message}</div>`;
         }
-        container.innerHTML = `<div class="error">Error loading commits: ${error.message}</div>`;
     }
 }
 
-async function loadStats() {
+// Compare two stats objects to see if they're the same
+function statsEqual(stats1, stats2) {
+    if (!stats1 || !stats2) return false;
+    return stats1.total_keys === stats2.total_keys &&
+           stats1.total_commits === stats2.total_commits &&
+           stats1.valid_chains === stats2.valid_chains &&
+           stats1.broken_chains === stats2.broken_chains &&
+           stats1.last_commit === stats2.last_commit;
+}
+
+async function loadStats(silent = false) {
     try {
         const response = await fetch(`${API_BASE}/api/stats`);
         const data = await response.json();
@@ -125,16 +173,35 @@ async function loadStats() {
 
         const stats = data.stats;
         
-        // Smoothly update stats with fade transition
-        const updateStat = (id, value) => {
+        // Check if stats have changed
+        const hasChanged = !statsEqual(currentStats, stats);
+        
+        // If silent mode and no changes, do nothing
+        if (silent && !hasChanged) {
+            return;
+        }
+
+        // Store current stats
+        currentStats = stats;
+        
+        // Update stats - only with animation if not silent and changed
+        const updateStat = (id, value, animate = !silent && hasChanged) => {
             const element = document.getElementById(id);
-            if (element) {
-                element.style.transition = 'opacity 0.2s ease-in';
-                element.style.opacity = '0.5';
-                setTimeout(() => {
+            if (element && element.textContent !== String(value)) {
+                if (animate) {
+                    element.style.transition = 'opacity 0.2s ease-in';
+                    element.style.opacity = '0.5';
+                    setTimeout(() => {
+                        element.textContent = value;
+                        element.style.opacity = '1';
+                    }, 100);
+                } else {
+                    // Silent update - no animation
                     element.textContent = value;
-                    element.style.opacity = '1';
-                }, 100);
+                }
+            } else if (element) {
+                // Value unchanged, just ensure opacity is 1
+                element.style.opacity = '1';
             }
         };
         
@@ -148,7 +215,9 @@ async function loadStats() {
             : 'Never';
         updateStat('statLastUpdate', lastUpdateText);
     } catch (error) {
-        console.error('Error loading stats:', error);
+        if (!silent) {
+            console.error('Error loading stats:', error);
+        }
     }
 }
 
