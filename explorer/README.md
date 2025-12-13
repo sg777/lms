@@ -55,17 +55,17 @@ You should see the LMS Hash Chain Explorer interface.
 
 **Custom port:**
 ```bash
-./explorer -port 9000
+./lms-explorer -port 9000
 ```
 
 **Custom Raft endpoints:**
 ```bash
-./explorer -raft-endpoints "http://10.0.0.1:8080,http://10.0.0.2:8080"
+./lms-explorer -raft-endpoints "http://10.0.0.1:8080,http://10.0.0.2:8080"
 ```
 
 **Both custom:**
 ```bash
-./explorer -port 9000 -raft-endpoints "http://10.0.0.1:8080,http://10.0.0.2:8080"
+./lms-explorer -port 9000 -raft-endpoints "http://10.0.0.1:8080,http://10.0.0.2:8080"
 ```
 
 ## How to Use the Web Interface
