@@ -281,9 +281,10 @@ func (s *HSMServer) Start() error {
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("HSM Server starting on %s", addr)
 	log.Printf("Endpoints:")
-	log.Printf("  POST /generate_key - Generate new LMS key")
-	log.Printf("  GET  /list_keys   - List all keys")
-	log.Printf("  POST /sign         - Sign message with key_id")
+	log.Printf("  POST   /generate_key   - Generate new LMS key")
+	log.Printf("  GET    /list_keys      - List all keys")
+	log.Printf("  POST   /sign           - Sign message with key_id")
+	log.Printf("  DELETE /delete_all_keys - Delete all keys (WARNING: irreversible)")
 	log.Printf("Raft endpoints: %v", s.raftEndpoints)
 	log.Printf("Database: %s", dbFileName)
 	
