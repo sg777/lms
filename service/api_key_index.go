@@ -70,7 +70,7 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 	// Handle chain endpoint
 	if endpoint == "chain" {
 		// Build chain from Raft log entries (works even for entries committed before keyEntries storage was added)
-		chainEntries := s.buildChainFromRaftLog(keyID)
+		chainEntries, verification := s.buildChainFromRaftLog(keyID)
 		
 		if len(chainEntries) == 0 {
 			response := map[string]interface{}{
@@ -87,11 +87,12 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 		}
 
 		response := map[string]interface{}{
-			"success": true,
-			"key_id":  keyID,
-			"exists":  true,
-			"chain":   chainEntries,
-			"count":   len(chainEntries),
+			"success":      true,
+			"key_id":       keyID,
+			"exists":       true,
+			"chain":        chainEntries,
+			"count":        len(chainEntries),
+			"verification": verification,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
@@ -128,25 +129,63 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 
 // buildChainFromRaftLog builds the full hash chain for a key_id by querying through FSM's stored entries first,
 // then falling back to querying log entries if needed
-func (s *APIServer) buildChainFromRaftLog(keyID string) []map[string]interface{} {
+// Returns the chain entries and verification results
+func (s *APIServer) buildChainFromRaftLog(keyID string) ([]map[string]interface{}, *ChainVerification) {
 	chainEntries := make([]map[string]interface{}, 0)
+	verification := &ChainVerification{
+		Valid:     true,
+		Error:     "",
+		BreakIndex: -1,
+	}
 	
 	// First try to get from FSM's stored entries (if available)
 	if chainFSM, ok := s.fsm.(interface{ GetKeyChain(string) ([]*fsm.KeyIndexEntry, bool) }); ok {
 		entries, exists := chainFSM.GetKeyChain(keyID)
 		if exists && len(entries) > 0 {
-			// Convert to response format
-			for _, entry := range entries {
-				chainEntries = append(chainEntries, map[string]interface{}{
-					"key_id":       entry.KeyID,
-					"index":        entry.Index,
-					"previous_hash": entry.PreviousHash,
-					"hash":         entry.Hash,
-					"signature":    entry.Signature,
-					"public_key":   entry.PublicKey,
-				})
+			// Convert to response format and verify chain integrity
+			// Note: "hash" is the CURRENT hash of THIS entry (computed on all fields except hash itself)
+			// This hash becomes the "previous_hash" for the next entry in the chain
+			
+			// Verify chain integrity
+			verification = s.verifyChainIntegrity(entries)
+			
+			for i, entry := range entries {
+				entryMap := map[string]interface{}{
+					"key_id":        entry.KeyID,
+					"index":         entry.Index,
+					"previous_hash": entry.PreviousHash, // Hash from previous entry (or genesis)
+					"hash":          entry.Hash,         // Hash of THIS entry (will be previous_hash for next)
+					"signature":     entry.Signature,
+					"public_key":    entry.PublicKey,
+				}
+				
+				// Add verification status for this entry
+				if i == verification.BreakIndex {
+					entryMap["chain_broken"] = true
+					entryMap["chain_error"] = verification.Error
+				} else if i > 0 {
+					// Verify this entry's previous_hash matches previous entry's hash
+					prevEntry := entries[i-1]
+					if entry.PreviousHash == prevEntry.Hash {
+						entryMap["chain_valid"] = true
+					} else {
+						entryMap["chain_broken"] = true
+						entryMap["chain_error"] = fmt.Sprintf("previous_hash mismatch: expected %s, got %s", prevEntry.Hash, entry.PreviousHash)
+					}
+				} else {
+					// First entry - verify it uses genesis hash
+					if entry.PreviousHash == fsm.GenesisHash {
+						entryMap["chain_valid"] = true
+						entryMap["is_genesis"] = true
+					} else {
+						entryMap["chain_broken"] = true
+						entryMap["chain_error"] = fmt.Sprintf("first entry should have genesis hash, got %s", entry.PreviousHash)
+					}
+				}
+				
+				chainEntries = append(chainEntries, entryMap)
 			}
-			return chainEntries
+			return chainEntries, verification
 		}
 	}
 	
@@ -154,7 +193,77 @@ func (s *APIServer) buildChainFromRaftLog(keyID string) []map[string]interface{}
 	// and Raft replays logs on startup (calling Apply), they should be in keyEntries now.
 	// If not found, return empty (entries don't exist or weren't KeyIndexEntry types)
 	
-	return chainEntries
+	return chainEntries, verification
+}
+
+// ChainVerification represents the result of chain integrity verification
+type ChainVerification struct {
+	Valid      bool   `json:"valid"`
+	Error      string `json:"error,omitempty"`
+	BreakIndex int    `json:"break_index,omitempty"` // Index of entry where chain breaks (-1 if no break)
+}
+
+// verifyChainIntegrity verifies the integrity of a hash chain
+func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVerification {
+	verification := &ChainVerification{
+		Valid:      true,
+		BreakIndex: -1,
+	}
+	
+	if len(entries) == 0 {
+		verification.Valid = false
+		verification.Error = "chain is empty"
+		return verification
+	}
+	
+	// Verify first entry uses genesis hash
+	if entries[0].PreviousHash != fsm.GenesisHash {
+		verification.Valid = false
+		verification.Error = fmt.Sprintf("first entry previous_hash mismatch: expected %s (genesis), got %s", fsm.GenesisHash, entries[0].PreviousHash)
+		verification.BreakIndex = 0
+		return verification
+	}
+	
+	// Verify each entry's hash computation
+	for i, entry := range entries {
+		computedHash, err := entry.ComputeHash()
+		if err != nil {
+			verification.Valid = false
+			verification.Error = fmt.Sprintf("entry %d: failed to compute hash: %v", i, err)
+			verification.BreakIndex = i
+			return verification
+		}
+		
+		if entry.Hash != computedHash {
+			verification.Valid = false
+			verification.Error = fmt.Sprintf("entry %d: hash mismatch: expected %s, got %s", i, computedHash, entry.Hash)
+			verification.BreakIndex = i
+			return verification
+		}
+	}
+	
+	// Verify chain links (each entry's previous_hash matches previous entry's hash)
+	for i := 1; i < len(entries); i++ {
+		prevEntry := entries[i-1]
+		currentEntry := entries[i]
+		
+		if currentEntry.PreviousHash != prevEntry.Hash {
+			verification.Valid = false
+			verification.Error = fmt.Sprintf("chain broken at entry %d: previous_hash %s does not match previous entry's hash %s", i, currentEntry.PreviousHash, prevEntry.Hash)
+			verification.BreakIndex = i
+			return verification
+		}
+		
+		// Verify index is monotonic
+		if currentEntry.Index <= prevEntry.Index {
+			verification.Valid = false
+			verification.Error = fmt.Sprintf("chain broken at entry %d: index %d is not greater than previous index %d", i, currentEntry.Index, prevEntry.Index)
+			verification.BreakIndex = i
+			return verification
+		}
+	}
+	
+	return verification
 }
 
 // CommitIndexRequest is the request to commit an index for a key_id

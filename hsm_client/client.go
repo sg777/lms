@@ -276,15 +276,23 @@ type KeyChainEntry struct {
 	RaftTerm    uint64 `json:"raft_term,omitempty"`
 }
 
+// ChainVerification represents the result of chain integrity verification
+type ChainVerification struct {
+	Valid      bool   `json:"valid"`
+	Error      string `json:"error,omitempty"`
+	BreakIndex int    `json:"break_index,omitempty"` // Index of entry where chain breaks (-1 if no break)
+}
+
 // KeyChainResponse is the response from getting the full chain
 type KeyChainResponse struct {
-	Success bool            `json:"success"`
-	KeyID   string          `json:"key_id"`
-	Exists  bool            `json:"exists"`
-	Chain   []KeyChainEntry `json:"chain"`
-	Count   int             `json:"count"`
-	Message string          `json:"message,omitempty"`
-	Error   string          `json:"error,omitempty"`
+	Success      bool              `json:"success"`
+	KeyID        string            `json:"key_id"`
+	Exists       bool              `json:"exists"`
+	Chain        []KeyChainEntry   `json:"chain"`
+	Count        int               `json:"count"`
+	Verification *ChainVerification `json:"verification,omitempty"`
+	Message      string            `json:"message,omitempty"`
+	Error        string            `json:"error,omitempty"`
 }
 
 // GetKeyChain retrieves the full hash chain for a key_id from the Raft cluster

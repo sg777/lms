@@ -121,11 +121,52 @@ func main() {
 			return
 		}
 		
-		fmt.Printf("🔗 Hash Chain for Key ID: %s (%d entries)\n\n", chain.KeyID, chain.Count)
+		fmt.Printf("🔗 Hash Chain for Key ID: %s (%d entries)\n", chain.KeyID, chain.Count)
+		
+		// Show verification status
+		if chain.Verification != nil {
+			if chain.Verification.Valid {
+				fmt.Printf("✅ Chain Integrity: VALID\n\n")
+			} else {
+				fmt.Printf("❌ Chain Integrity: BROKEN\n")
+				fmt.Printf("   Error: %s\n", chain.Verification.Error)
+				if chain.Verification.BreakIndex >= 0 {
+					fmt.Printf("   Break at entry: %d\n", chain.Verification.BreakIndex+1)
+				}
+				fmt.Println()
+			}
+		}
+		
 		for i, entry := range chain.Chain {
 			fmt.Printf("--- Entry %d (LMS Index: %d) ---\n", i+1, entry.Index)
+			
+			// Show previous hash with link status
 			fmt.Printf("  Previous Hash: %s\n", entry.PreviousHash)
+			if i == 0 && entry.PreviousHash == "0000000000000000000000000000000000000000000000000000000000000000" {
+				fmt.Printf("                [GENESIS - First entry in chain] ✓\n")
+			} else if i > 0 {
+				prevEntry := chain.Chain[i-1]
+				if entry.PreviousHash == prevEntry.Hash {
+					fmt.Printf("                ✓ Links to Entry %d's hash\n", i)
+				} else {
+					fmt.Printf("                ✗ BROKEN: Does NOT match Entry %d's hash!\n", i)
+					fmt.Printf("                  Expected: %s\n", prevEntry.Hash)
+					fmt.Printf("                  Got:      %s\n", entry.PreviousHash)
+				}
+			}
+			
 			fmt.Printf("  Hash:          %s\n", entry.Hash)
+			
+			// Show if this will link to next entry
+			if i < len(chain.Chain)-1 {
+				nextEntry := chain.Chain[i+1]
+				if nextEntry.PreviousHash == entry.Hash {
+					fmt.Printf("                ✓ Used as previous_hash for Entry %d\n", i+2)
+				} else {
+					fmt.Printf("                ✗ Next entry's previous_hash does NOT match!\n")
+				}
+			}
+			
 			fmt.Printf("  Signature:     %s...\n", entry.Signature[:min(64, len(entry.Signature))])
 			if entry.RaftIndex > 0 {
 				fmt.Printf("  Raft Index:    %d (Term: %d)\n", entry.RaftIndex, entry.RaftTerm)
