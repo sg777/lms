@@ -112,6 +112,9 @@ func (s *ExplorerServer) Start() error {
 	mux.HandleFunc("/api/my/keys", s.handleMyKeys)
 	mux.HandleFunc("/api/my/generate", s.handleGenerateKey)
 	mux.HandleFunc("/api/my/sign", s.handleSign)
+	mux.HandleFunc("/api/my/export", s.handleExportKey)
+	mux.HandleFunc("/api/my/import", s.handleImportKey)
+	mux.HandleFunc("/api/my/delete", s.handleDeleteKey)
 	
 	// Static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./explorer/static"))))

@@ -36,13 +36,18 @@ async function loadMyKeys(silent = false) {
         let html = '<table><thead><tr><th>Key ID</th><th>Index</th><th>Parameters</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
         
         data.keys.forEach(key => {
+            const keyIdEscaped = escapeHtml(key.key_id).replace(/'/g, "\\'").replace(/"/g, '&quot;');
             html += `
                 <tr>
                     <td><strong>${escapeHtml(key.key_id)}</strong></td>
                     <td>${key.index}</td>
                     <td class="hash-cell">${escapeHtml(key.params || 'N/A')}</td>
-                    <td>${new Date(key.created).toLocaleDateString()}</td>
-                    <td><button class="auth-btn" onclick="viewChain('${escapeHtml(key.key_id).replace(/'/g, "\\'")}')">View Chain</button></td>
+                    <td>${key.created ? new Date(key.created).toLocaleDateString() : 'N/A'}</td>
+                    <td>
+                        <button class="auth-btn" onclick="exportKey('${keyIdEscaped}')" style="margin-right: 5px; padding: 5px 10px; font-size: 0.85em;">📥 Export</button>
+                        <button class="auth-btn" onclick="deleteKey('${keyIdEscaped}')" style="margin-right: 5px; padding: 5px 10px; font-size: 0.85em; background: #f87171;">🗑️ Delete</button>
+                        <button class="auth-btn" onclick="viewChain('${keyIdEscaped}')" style="padding: 5px 10px; font-size: 0.85em;">🔗 View Chain</button>
+                    </td>
                 </tr>
             `;
         });

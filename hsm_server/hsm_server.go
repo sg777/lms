@@ -320,6 +320,9 @@ func (s *HSMServer) Start() error {
 	mux.HandleFunc("/list_keys", s.handleListKeys)
 	mux.HandleFunc("/sign", s.handleSign)
 	mux.HandleFunc("/delete_all_keys", s.handleDeleteAllKeys)
+	mux.HandleFunc("/export_key", s.handleExportKey)
+	mux.HandleFunc("/import_key", s.handleImportKey)
+	mux.HandleFunc("/delete_key", s.handleDeleteKey)
 	
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("HSM Server starting on %s", addr)
@@ -328,6 +331,9 @@ func (s *HSMServer) Start() error {
 	log.Printf("  GET    /list_keys      - List all keys")
 	log.Printf("  POST   /sign           - Sign message with key_id")
 	log.Printf("  DELETE /delete_all_keys - Delete all keys (WARNING: irreversible)")
+	log.Printf("  POST   /export_key     - Export key (includes private key)")
+	log.Printf("  POST   /import_key     - Import key")
+	log.Printf("  POST   /delete_key     - Delete a specific key")
 	log.Printf("Raft endpoints: %v", s.raftEndpoints)
 	log.Printf("Database: %s", dbFileName)
 	

@@ -105,7 +105,10 @@
             <div class="section">
                 <div class="section-header">
                     <h2>My LMS Keys</h2>
-                    <button id="generateKeyBtn" class="refresh-btn">➕ Generate Key</button>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="importKeyBtn" class="refresh-btn">📥 Import Key</button>
+                        <button id="generateKeyBtn" class="refresh-btn">➕ Generate Key</button>
+                    </div>
                 </div>
                 <div id="myKeysList" class="table-container">
                     <div class="loading">Loading your keys...</div>
@@ -153,6 +156,28 @@
             </div>
         </div>
 
+        <!-- Import Key Modal -->
+        <div id="importKeyModal" class="modal">
+            <div class="modal-content" style="max-width: 600px;">
+                <span class="close-modal" data-modal="importKeyModal">&times;</span>
+                <h2>Import Key</h2>
+                <form id="importKeyForm">
+                    <div class="form-group">
+                        <label for="importKeyData">Exported Key JSON:</label>
+                        <textarea id="importKeyData" class="form-input" rows="10" placeholder='Paste exported key JSON here...&#10;{&#10;  "private_key": "...",&#10;  "public_key": "...",&#10;  "index": 0,&#10;  ...&#10;}' required></textarea>
+                        <small>Paste the complete JSON from an exported key file</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="importKeyId">New Key ID (optional):</label>
+                        <input type="text" id="importKeyId" class="form-input" placeholder="Leave empty to auto-generate">
+                        <small>If not provided, a new key_id will be generated for you</small>
+                    </div>
+                    <button type="submit" class="search-btn">Import Key</button>
+                    <div id="importKeyError" class="error-message" style="display: none;"></div>
+                </form>
+            </div>
+        </div>
+
         <!-- Register Modal -->
         <div id="registerModal" class="modal">
             <div class="modal-content">
@@ -182,6 +207,7 @@
     <script src="/static/app.js"></script>
     <script src="/static/auth.js"></script>
     <script src="/static/mykeys.js"></script>
+    <script src="/static/export_import.js"></script>
 </body>
 </html>
 

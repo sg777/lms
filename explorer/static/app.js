@@ -92,9 +92,14 @@ function setupEventListeners() {
     
     // My Keys
     const generateKeyBtn = document.getElementById('generateKeyBtn');
+    const importKeyBtn = document.getElementById('importKeyBtn');
     const signBtn = document.getElementById('signBtn');
+    const importKeyForm = document.getElementById('importKeyForm');
+    
     if (generateKeyBtn) generateKeyBtn.addEventListener('click', handleGenerateKey);
+    if (importKeyBtn) importKeyBtn.addEventListener('click', () => openModal('importKeyModal'));
     if (signBtn) signBtn.addEventListener('click', handleSignMessage);
+    if (importKeyForm) importKeyForm.addEventListener('submit', handleImportKey);
 }
 
 // Compare two commit arrays to see if they're the same
