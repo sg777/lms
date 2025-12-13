@@ -9,6 +9,13 @@ import (
 	"github.com/verifiable-state-chains/lms/hsm_client"
 )
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printHelp()
@@ -98,6 +105,34 @@ func main() {
 			fmt.Printf("Status: Not found (no index committed yet)\n")
 		}
 		
+	case "chain":
+		if *keyID == "" {
+			log.Fatal("key-id is required for chain command")
+		}
+		
+		chain, err := hsm_client.GetKeyChain(*raftEndpoint, *keyID)
+		if err != nil {
+			log.Fatalf("Failed to get chain: %v", err)
+		}
+		
+		if !chain.Exists || chain.Count == 0 {
+			fmt.Printf("Key ID: %s\n", *keyID)
+			fmt.Printf("Status: Not found (no entries in chain)\n")
+			return
+		}
+		
+		fmt.Printf("🔗 Hash Chain for Key ID: %s (%d entries)\n\n", chain.KeyID, chain.Count)
+		for i, entry := range chain.Chain {
+			fmt.Printf("--- Entry %d (LMS Index: %d) ---\n", i+1, entry.Index)
+			fmt.Printf("  Previous Hash: %s\n", entry.PreviousHash)
+			fmt.Printf("  Hash:          %s\n", entry.Hash)
+			fmt.Printf("  Signature:     %s...\n", entry.Signature[:min(64, len(entry.Signature))])
+			if entry.RaftIndex > 0 {
+				fmt.Printf("  Raft Index:    %d (Term: %d)\n", entry.RaftIndex, entry.RaftTerm)
+			}
+			fmt.Println()
+		}
+		
 	case "delete-all":
 		err := client.DeleteAllKeys()
 		if err != nil {
@@ -124,6 +159,7 @@ func printHelp() {
 	fmt.Println("  list              List all available keys")
 	fmt.Println("  sign              Sign a message with key_id")
 	fmt.Println("  query             Query Raft cluster for key_id's last index")
+	fmt.Println("  chain             Get full hash chain for key_id from Raft cluster")
 	fmt.Println("  delete-all        Delete all keys from HSM server (WARNING: irreversible)")
 	fmt.Println()
 	fmt.Println("Flags:")
@@ -140,6 +176,7 @@ func printHelp() {
 	fmt.Println("  ./hsm-client list -server http://159.69.23.29:9090")
 	fmt.Println("  ./hsm-client sign -key-id my_key -msg 'hello world' -server http://159.69.23.29:9090")
 	fmt.Println("  ./hsm-client query -key-id my_key -raft http://159.69.23.29:8080")
+	fmt.Println("  ./hsm-client chain -key-id my_key -raft http://159.69.23.29:8080")
 	fmt.Println("  ./hsm-client delete-all -server http://159.69.23.29:9090")
 }
 

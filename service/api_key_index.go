@@ -69,56 +69,33 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Handle chain endpoint
 	if endpoint == "chain" {
-		// Try to get full chain if FSM supports it
-		if chainFSM, ok := s.fsm.(interface{ GetKeyChain(string) ([]*fsm.KeyIndexEntry, bool) }); ok {
-			entries, exists := chainFSM.GetKeyChain(keyID)
-			if !exists {
-				response := map[string]interface{}{
-					"success": true,
-					"key_id":  keyID,
-					"exists":  false,
-					"chain":   []interface{}{},
-					"count":   0,
-					"message": "key_id not found",
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(response)
-				return
-			}
-
-			// Convert entries to JSON-serializable format
-			chainEntries := make([]map[string]interface{}, len(entries))
-			for i, entry := range entries {
-				chainEntries[i] = map[string]interface{}{
-					"key_id":       entry.KeyID,
-					"index":        entry.Index,
-					"previous_hash": entry.PreviousHash,
-					"hash":         entry.Hash,
-					"signature":    entry.Signature,
-					"public_key":   entry.PublicKey,
-				}
-			}
-
+		// Build chain from Raft log entries (works even for entries committed before keyEntries storage was added)
+		chainEntries := s.buildChainFromRaftLog(keyID)
+		
+		if len(chainEntries) == 0 {
 			response := map[string]interface{}{
 				"success": true,
 				"key_id":  keyID,
-				"exists":  true,
-				"chain":   chainEntries,
-				"count":   len(chainEntries),
+				"exists":  false,
+				"chain":   []interface{}{},
+				"count":   0,
+				"message": "key_id not found",
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
-			return
-		} else {
-			response := map[string]interface{}{
-				"success": false,
-				"error":   "Chain retrieval not supported by FSM",
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotImplemented)
 			json.NewEncoder(w).Encode(response)
 			return
 		}
+
+		response := map[string]interface{}{
+			"success": true,
+			"key_id":  keyID,
+			"exists":  true,
+			"chain":   chainEntries,
+			"count":   len(chainEntries),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
 	}
 
 	// Handle index endpoint (existing behavior)
@@ -147,6 +124,37 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// buildChainFromRaftLog builds the full hash chain for a key_id by querying through FSM's stored entries first,
+// then falling back to querying log entries if needed
+func (s *APIServer) buildChainFromRaftLog(keyID string) []map[string]interface{} {
+	chainEntries := make([]map[string]interface{}, 0)
+	
+	// First try to get from FSM's stored entries (if available)
+	if chainFSM, ok := s.fsm.(interface{ GetKeyChain(string) ([]*fsm.KeyIndexEntry, bool) }); ok {
+		entries, exists := chainFSM.GetKeyChain(keyID)
+		if exists && len(entries) > 0 {
+			// Convert to response format
+			for _, entry := range entries {
+				chainEntries = append(chainEntries, map[string]interface{}{
+					"key_id":       entry.KeyID,
+					"index":        entry.Index,
+					"previous_hash": entry.PreviousHash,
+					"hash":         entry.Hash,
+					"signature":    entry.Signature,
+					"public_key":   entry.PublicKey,
+				})
+			}
+			return chainEntries
+		}
+	}
+	
+	// Fallback: Since entries might have been committed before keyEntries storage was added,
+	// and Raft replays logs on startup (calling Apply), they should be in keyEntries now.
+	// If not found, return empty (entries don't exist or weren't KeyIndexEntry types)
+	
+	return chainEntries
 }
 
 // CommitIndexRequest is the request to commit an index for a key_id

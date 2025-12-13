@@ -264,6 +264,60 @@ func (c *HSMClient) DeleteAllKeys() error {
 	return nil
 }
 
+// KeyChainEntry represents a single entry in the hash chain
+type KeyChainEntry struct {
+	KeyID       string `json:"key_id"`
+	Index       uint64 `json:"index"`
+	PreviousHash string `json:"previous_hash"`
+	Hash        string `json:"hash"`
+	Signature   string `json:"signature"`
+	PublicKey   string `json:"public_key"`
+	RaftIndex   uint64 `json:"raft_index,omitempty"`
+	RaftTerm    uint64 `json:"raft_term,omitempty"`
+}
+
+// KeyChainResponse is the response from getting the full chain
+type KeyChainResponse struct {
+	Success bool            `json:"success"`
+	KeyID   string          `json:"key_id"`
+	Exists  bool            `json:"exists"`
+	Chain   []KeyChainEntry `json:"chain"`
+	Count   int             `json:"count"`
+	Message string          `json:"message,omitempty"`
+	Error   string          `json:"error,omitempty"`
+}
+
+// GetKeyChain retrieves the full hash chain for a key_id from the Raft cluster
+func GetKeyChain(raftEndpoint, keyID string) (*KeyChainResponse, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	
+	url := fmt.Sprintf("%s/key/%s/chain", raftEndpoint, keyID)
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Raft: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		var errorResp KeyChainResponse
+		json.Unmarshal(body, &errorResp)
+		return nil, fmt.Errorf("Raft error: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var response KeyChainResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	if !response.Success {
+		return nil, fmt.Errorf("query failed: %s", response.Error)
+	}
+
+	return &response, nil
+}
+
 // VerifySignature verifies an LMS signature
 // Returns true if signature is valid, false otherwise
 func VerifySignature(publicKey []byte, message string, signatureBase64 string) (bool, error) {
