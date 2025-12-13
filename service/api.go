@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	
 	"github.com/hashicorp/raft"
 	"github.com/verifiable-state-chains/lms/models"
