@@ -257,6 +257,26 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		lmsKey = cachedKey
 	}
 
+	// Ensure LmType and OtsType are set (they might be missing from old keys)
+	// If they're empty, use default values (h=5, w=1)
+	if len(lmsKey.LmType) == 0 || len(lmsKey.OtsType) == 0 || lmsKey.Levels == 0 {
+		log.Printf("Warning: Key %s missing LMS parameters, setting defaults (h=5, w=1)", req.KeyID)
+		lmsKey.Levels = 1
+		lmsKey.LmType = []int{lms_wrapper.LMS_SHA256_M32_H5}
+		lmsKey.OtsType = []int{lms_wrapper.LMOTS_SHA256_N32_W1}
+		// Update in database and cache
+		if err := s.db.StoreKey(req.KeyID, lmsKey); err != nil {
+			log.Printf("Warning: Failed to update key parameters in DB: %v", err)
+		}
+		s.mu.Lock()
+		if cachedKey, exists := s.keys[req.KeyID]; exists {
+			cachedKey.Levels = lmsKey.Levels
+			cachedKey.LmType = lmsKey.LmType
+			cachedKey.OtsType = lmsKey.OtsType
+		}
+		s.mu.Unlock()
+	}
+
 	// Step 4: Sign the message with LMS key
 	if len(lmsKey.PrivateKey) == 0 {
 		response := SignResponse{

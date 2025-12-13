@@ -21,10 +21,10 @@ type LMSKey struct {
 	PublicKey  []byte    `json:"public_key,omitempty"`  // Serialized LMS public key
 	Params     string    `json:"params,omitempty"`      // LMS parameters description (e.g., "LMS: h=5, w=1 (max 32 signatures)")
 	
-	// LMS parameters needed for loading working key (stored but not sent to clients)
-	Levels  int   `json:"-"` // Number of levels
-	LmType  []int `json:"-"` // LMS parameter set array
-	OtsType []int `json:"-"` // OTS parameter set array
+	// LMS parameters needed for loading working key (stored in DB but not sent to clients)
+	Levels  int   `json:"levels"`  // Number of levels
+	LmType  []int `json:"lm_type"` // LMS parameter set array
+	OtsType []int `json:"ots_type"` // OTS parameter set array
 }
 
 // HSMServer manages LMS keys
