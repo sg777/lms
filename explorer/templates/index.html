@@ -9,8 +9,22 @@
 <body>
     <div class="container">
         <header>
-            <h1>🔗 LMS Hash Chain Explorer</h1>
-            <p class="subtitle">Verifiable State Chain Explorer</p>
+            <div class="header-content">
+                <div>
+                    <h1>🔗 LMS Hash Chain Explorer</h1>
+                    <p class="subtitle">Verifiable State Chain Explorer</p>
+                </div>
+                <div class="auth-section">
+                    <span id="userInfo" style="display: none;">
+                        <span id="usernameDisplay"></span>
+                        <button id="logoutBtn" class="auth-btn logout-btn">Logout</button>
+                    </span>
+                    <span id="loginSection">
+                        <button id="loginBtn" class="auth-btn">Login</button>
+                        <button id="registerBtn" class="auth-btn">Register</button>
+                    </span>
+                </div>
+            </div>
         </header>
 
         <!-- Search Bar -->
@@ -48,37 +62,126 @@
             </div>
         </div>
 
-        <!-- Recent Commits Table -->
-        <div class="section">
-            <div class="section-header">
-                <h2>Recent Commits</h2>
-                <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
+        <!-- Navigation Tabs -->
+        <div class="tabs" id="mainTabs">
+            <button class="tab-btn active" data-tab="explorer">Public Explorer</button>
+            <button class="tab-btn" data-tab="mykeys" id="myKeysTab" style="display: none;">My Keys</button>
+        </div>
+
+        <!-- Public Explorer Tab -->
+        <div class="tab-content active" id="explorerTab">
+            <!-- Recent Commits Table -->
+            <div class="section">
+                <div class="section-header">
+                    <h2>Recent Commits</h2>
+                    <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
+                </div>
+                <div id="recentCommits" class="table-container">
+                    <div class="loading">Loading recent commits...</div>
+                </div>
             </div>
-            <div id="recentCommits" class="table-container">
-                <div class="loading">Loading recent commits...</div>
+
+            <!-- Search Results -->
+            <div class="section" id="searchResultsSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Search Results</h2>
+                    <button id="clearSearchBtn" class="clear-btn">Clear</button>
+                </div>
+                <div id="searchResults" class="results-container"></div>
+            </div>
+
+            <!-- Chain View -->
+            <div class="section" id="chainSection" style="display: none;">
+                <div class="section-header">
+                    <h2 id="chainTitle">Chain View</h2>
+                    <button id="closeChainBtn" class="close-btn">Close</button>
+                </div>
+                <div id="chainView" class="chain-container"></div>
             </div>
         </div>
 
-        <!-- Search Results -->
-        <div class="section" id="searchResultsSection" style="display: none;">
-            <div class="section-header">
-                <h2>Search Results</h2>
-                <button id="clearSearchBtn" class="clear-btn">Clear</button>
+        <!-- My Keys Tab (Authenticated) -->
+        <div class="tab-content" id="myKeysTabContent" style="display: none;">
+            <div class="section">
+                <div class="section-header">
+                    <h2>My LMS Keys</h2>
+                    <button id="generateKeyBtn" class="refresh-btn">➕ Generate Key</button>
+                </div>
+                <div id="myKeysList" class="table-container">
+                    <div class="loading">Loading your keys...</div>
+                </div>
             </div>
-            <div id="searchResults" class="results-container"></div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2>Sign Message</h2>
+                </div>
+                <div class="sign-form">
+                    <div class="form-group">
+                        <label for="signKeySelect">Select Key:</label>
+                        <select id="signKeySelect" class="form-input">
+                            <option value="">-- Select a key --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="signMessageInput">Message:</label>
+                        <textarea id="signMessageInput" class="form-input" rows="4" placeholder="Enter message to sign..."></textarea>
+                    </div>
+                    <button id="signBtn" class="search-btn">Sign Message</button>
+                    <div id="signResult" style="display: none;"></div>
+                </div>
+            </div>
         </div>
 
-        <!-- Chain View -->
-        <div class="section" id="chainSection" style="display: none;">
-            <div class="section-header">
-                <h2 id="chainTitle">Chain View</h2>
-                <button id="closeChainBtn" class="close-btn">Close</button>
+        <!-- Login Modal -->
+        <div id="loginModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal" data-modal="loginModal">&times;</span>
+                <h2>Login</h2>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="loginUsername">Username:</label>
+                        <input type="text" id="loginUsername" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Password:</label>
+                        <input type="password" id="loginPassword" class="form-input" required>
+                    </div>
+                    <button type="submit" class="search-btn">Login</button>
+                    <div id="loginError" class="error-message" style="display: none;"></div>
+                </form>
             </div>
-            <div id="chainView" class="chain-container"></div>
+        </div>
+
+        <!-- Register Modal -->
+        <div id="registerModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal" data-modal="registerModal">&times;</span>
+                <h2>Register</h2>
+                <form id="registerForm">
+                    <div class="form-group">
+                        <label for="registerUsername">Username:</label>
+                        <input type="text" id="registerUsername" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="registerEmail">Email (optional):</label>
+                        <input type="email" id="registerEmail" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="registerPassword">Password:</label>
+                        <input type="password" id="registerPassword" class="form-input" required minlength="6">
+                        <small>Minimum 6 characters</small>
+                    </div>
+                    <button type="submit" class="search-btn">Register</button>
+                    <div id="registerError" class="error-message" style="display: none;"></div>
+                </form>
+            </div>
         </div>
     </div>
 
     <script src="/static/app.js"></script>
+    <script src="/static/auth.js"></script>
+    <script src="/static/mykeys.js"></script>
 </body>
 </html>
 
