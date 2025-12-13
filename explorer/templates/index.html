@@ -192,8 +192,9 @@
                 <form id="importKeyForm">
                     <div class="form-group">
                         <label for="importKeyData">Exported Key JSON:</label>
-                        <textarea id="importKeyData" class="form-input" rows="10" placeholder='Paste exported key JSON here...&#10;{&#10;  "private_key": "...",&#10;  "public_key": "...",&#10;  "index": 0,&#10;  ...&#10;}' required></textarea>
-                        <small>Paste the complete JSON from an exported key file</small>
+                        <textarea id="importKeyData" class="form-input" rows="6" placeholder='Paste exported key JSON here...&#10;{&#10;  "private_key": "...",&#10;  "public_key": "...",&#10;  "index": 0,&#10;  ...&#10;}'></textarea>
+                        <small>Or upload a JSON file:</small>
+                        <input type="file" id="importKeyFile" accept=".json" style="margin-top: 5px; width: 100%;">
                     </div>
                     <div class="form-group">
                         <label for="importKeyId">New Key ID (optional):</label>

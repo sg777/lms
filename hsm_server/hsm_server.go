@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/verifiable-state-chains/lms/fsm"
 	"github.com/verifiable-state-chains/lms/lms_wrapper"
 )
 
@@ -177,15 +178,35 @@ func (s *HSMServer) generateKey(keyID string, userID string) (*LMSKey, error) {
 
 // listKeys returns all keys (without private keys)
 // If userID is provided, only returns keys for that user
+// Index is synced from Raft cluster for accurate display
 func (s *HSMServer) listKeys(userID string) []LMSKey {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	keys := make([]LMSKey, 0, len(s.keys))
+	keysToReturn := make([]*LMSKey, 0, len(s.keys))
 	for _, key := range s.keys {
 		// Filter by userID if provided
 		if userID != "" && key.UserID != userID {
 			continue
+		}
+		keysToReturn = append(keysToReturn, key)
+	}
+	s.mu.RUnlock()
+
+	// Query Raft for actual index for each key (to ensure accuracy)
+	keys := make([]LMSKey, 0, len(keysToReturn))
+	for _, key := range keysToReturn {
+		// Compute pubkey_hash for this key
+		pubkeyHash := fsm.ComputePubkeyHash(key.PublicKey)
+		
+		// Query Raft for actual last used index
+		raftIndex, _, exists, err := s.queryRaftByPubkeyHash(pubkeyHash)
+		if err == nil && exists {
+			// Update index in DB and cache if it's different
+			if raftIndex != key.Index {
+				s.mu.Lock()
+				key.Index = raftIndex
+				s.db.UpdateKeyIndex(key.KeyID, raftIndex)
+				s.mu.Unlock()
+			}
 		}
 		
 		// Create a copy without private key for client response

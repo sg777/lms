@@ -1,5 +1,15 @@
 // Export/Import/Delete key functionality
 
+// Helper function to read file as text
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = (e) => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+    });
+}
+
 async function exportKey(keyId) {
     if (!authToken) {
         alert('Please login first');
@@ -108,14 +118,32 @@ async function handleImportKey(e) {
         return;
     }
 
-    const jsonData = document.getElementById('importKeyData').value.trim();
+    const fileInput = document.getElementById('importKeyFile');
+    const textarea = document.getElementById('importKeyData');
     const newKeyId = document.getElementById('importKeyId').value.trim();
     const errorDiv = document.getElementById('importKeyError');
     
     errorDiv.style.display = 'none';
     
+    let jsonData = textarea.value.trim();
+    
+    // If file is selected, read from file instead
+    if (fileInput.files && fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        try {
+            const fileText = await readFileAsText(file);
+            jsonData = fileText.trim();
+            // Also populate textarea with file contents
+            textarea.value = jsonData;
+        } catch (error) {
+            errorDiv.textContent = 'Error reading file: ' + error.message;
+            errorDiv.style.display = 'block';
+            return;
+        }
+    }
+    
     if (!jsonData) {
-        errorDiv.textContent = 'Please paste the exported key JSON';
+        errorDiv.textContent = 'Please paste the exported key JSON or upload a JSON file';
         errorDiv.style.display = 'block';
         return;
     }
