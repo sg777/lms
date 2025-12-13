@@ -174,6 +174,20 @@ func (kdb *KeyDB) DeleteAllKeys() error {
 	})
 }
 
+// DeleteKey deletes a specific key from the database
+func (kdb *KeyDB) DeleteKey(keyID string) error {
+	kdb.mu.Lock()
+	defer kdb.mu.Unlock()
+
+	return kdb.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte(bucketName))
+		if bucket == nil {
+			return fmt.Errorf("bucket not found")
+		}
+		return bucket.Delete([]byte(keyID))
+	})
+}
+
 // Close closes the database
 func (kdb *KeyDB) Close() error {
 	kdb.mu.Lock()

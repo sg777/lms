@@ -234,6 +234,32 @@ func (s *HSMServer) handleImportKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Decode base64 private key
+	privateKeyBytes, err := base64.StdEncoding.DecodeString(req.PrivateKey)
+	if err != nil {
+		response := ImportKeyResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Invalid private_key base64 encoding: %v", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Decode base64 public key
+	publicKeyBytes, err := base64.StdEncoding.DecodeString(req.PublicKey)
+	if err != nil {
+		response := ImportKeyResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Invalid public_key base64 encoding: %v", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	// Create key object
 	importedKey := &LMSKey{
 		KeyID:      keyID,
@@ -248,11 +274,8 @@ func (s *HSMServer) handleImportKey(w http.ResponseWriter, r *http.Request) {
 		Created:    "", // Will be set to current time
 	}
 
-	// Use current time if Created not provided
-	if importedKey.Created == "" {
-		importedKey.Created = fmt.Sprintf("%d", 0) // Use timestamp format, but we'll use RFC3339
-		importedKey.Created = fmt.Sprintf("imported") // Mark as imported
-	}
+	// Use current time for Created field
+	importedKey.Created = time.Now().Format(time.RFC3339)
 
 	// Store in database
 	if err := s.db.StoreKey(keyID, importedKey); err != nil {
