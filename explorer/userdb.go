@@ -47,7 +47,13 @@ func NewUserDB(dbPath string) (*UserDB, error) {
 func (udb *UserDB) StoreUser(user *User) error {
 	return udb.db.Update(func(tx *bolt.Tx) error {
 		usersBucket := tx.Bucket([]byte("users"))
+		if usersBucket == nil {
+			return fmt.Errorf("users bucket not found")
+		}
 		usernameIndex := tx.Bucket([]byte("username_index"))
+		if usernameIndex == nil {
+			return fmt.Errorf("username_index bucket not found")
+		}
 
 		// Check if username already exists
 		if existingID := usernameIndex.Get([]byte(user.Username)); existingID != nil {
@@ -102,12 +108,18 @@ func (udb *UserDB) GetUserByUsername(username string) (*User, error) {
 	var user *User
 	err := udb.db.View(func(tx *bolt.Tx) error {
 		usernameIndex := tx.Bucket([]byte("username_index"))
+		if usernameIndex == nil {
+			return fmt.Errorf("username_index bucket not found")
+		}
 		userID := usernameIndex.Get([]byte(username))
 		if userID == nil {
 			return fmt.Errorf("user not found")
 		}
 
 		usersBucket := tx.Bucket([]byte("users"))
+		if usersBucket == nil {
+			return fmt.Errorf("users bucket not found")
+		}
 		data := usersBucket.Get(userID)
 		if data == nil {
 			return fmt.Errorf("user not found")

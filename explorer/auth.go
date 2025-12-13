@@ -89,9 +89,9 @@ func (a *AuthServer) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate and normalize input (trim whitespace)
-	req.Username = strings.TrimSpace(req.Username)
-	req.Email = strings.TrimSpace(req.Email)
+	// Validate and normalize input (trim whitespace and convert to lowercase)
+	req.Username = strings.ToLower(strings.TrimSpace(req.Username))
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	
 	if req.Username == "" {
 		response := AuthResponse{
