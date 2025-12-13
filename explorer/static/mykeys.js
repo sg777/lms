@@ -123,6 +123,74 @@ async function handleGenerateKey() {
     }
 }
 
+// Copy to clipboard helper
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        alert('Signature copied to clipboard!');
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        // Fallback: select text
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert('Signature copied to clipboard!');
+    });
+}
+
+// View chain after signing (switches to explorer tab)
+function viewChainAfterSign(keyId) {
+    // Switch to explorer tab first
+    switchTab('explorer');
+    
+    // Wait for tab to be visible, then view chain
+    setTimeout(() => {
+        // Find the chain section and show it
+        const chainSection = document.getElementById('chainSection');
+        const chainView = document.getElementById('chainView');
+        const chainTitle = document.getElementById('chainTitle');
+        
+        if (chainSection && chainView && chainTitle) {
+            chainSection.style.display = 'block';
+            chainTitle.textContent = `Chain: ${keyId}`;
+            chainView.innerHTML = '<div class="loading">Loading chain...</div>';
+            
+            // Scroll to chain section
+            chainSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            // Load the chain
+            loadChainForKey(keyId);
+        } else {
+            // Fallback to original viewChain if elements not found
+            if (typeof viewChain === 'function') {
+                viewChain(keyId);
+            }
+        }
+    }, 200);
+}
+
+// Load chain for a specific key (used after signing)
+async function loadChainForKey(keyId) {
+    const chainView = document.getElementById('chainView');
+    if (!chainView) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/chain/${encodeURIComponent(keyId)}`);
+        const data = await response.json();
+
+        if (!data.success || !data.chain) {
+            chainView.innerHTML = '<div class="error">Failed to load chain</div>';
+            return;
+        }
+
+        displayChain(data.chain, chainView);
+    } catch (error) {
+        chainView.innerHTML = `<div class="error">Error loading chain: ${error.message}</div>`;
+    }
+}
+
 async function handleSignMessage() {
     if (!authToken) {
         alert('Please login first');
@@ -172,13 +240,20 @@ async function handleSignMessage() {
         const data = await response.json();
         
         if (data.success) {
+            const signature = data.signature || '';
+            const index = data.index !== undefined ? data.index : 'N/A';
+            
             resultDiv.innerHTML = `
                 <div class="success-message">
-                    <strong>Message signed successfully!</strong><br>
-                    Key ID: ${escapeHtml(data.key_id)}<br>
-                    Index: ${data.index}<br>
-                    Signature: ${escapeHtml(data.signature.substring(0, 50))}...<br>
-                    <button class="auth-btn" onclick="viewChain('${escapeHtml(keyID).replace(/'/g, "\\'")}')" style="margin-top: 10px;">View Chain</button>
+                    <strong>Message signed successfully!</strong><br><br>
+                    <strong>Key ID:</strong> ${escapeHtml(data.key_id || keyID)}<br>
+                    <strong>Index Used:</strong> ${index}<br><br>
+                    <strong>Signature (full):</strong><br>
+                    <div style="background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 10px 0; word-break: break-all; font-family: monospace; font-size: 0.9em; max-height: 200px; overflow-y: auto;">
+                        ${escapeHtml(signature)}
+                    </div>
+                    <button onclick="copyToClipboard('${escapeHtml(signature).replace(/'/g, "\\'")}')" class="auth-btn" style="margin-right: 10px;">📋 Copy Signature</button>
+                    <button class="auth-btn" onclick="viewChainAfterSign('${escapeHtml(data.key_id || keyID).replace(/'/g, "\\'")}')">View Chain</button>
                 </div>
             `;
             resultDiv.style.display = 'block';
