@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -217,6 +218,7 @@ func (a *AuthServer) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Normalize username (trim whitespace and convert to lowercase for consistency)
 	req.Username = strings.TrimSpace(strings.ToLower(req.Username))
+	log.Printf("[LOGIN] Attempting login for username: '%s' (normalized)", req.Username)
 	if req.Username == "" {
 		response := AuthResponse{
 			Success: false,
@@ -231,6 +233,7 @@ func (a *AuthServer) Login(w http.ResponseWriter, r *http.Request) {
 	// Get user by username (case-insensitive)
 	user, err := a.userDB.GetUserByUsername(req.Username)
 	if err != nil || user == nil {
+		log.Printf("[LOGIN] User lookup failed for '%s': err=%v, user=%v", req.Username, err, user)
 		response := AuthResponse{
 			Success: false,
 			Error:   "invalid username or password",
@@ -240,9 +243,11 @@ func (a *AuthServer) Login(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(response)
 		return
 	}
+	log.Printf("[LOGIN] User found: ID=%s, Username='%s'", user.ID, user.Username)
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		log.Printf("[LOGIN] Password verification failed for user '%s': %v", req.Username, err)
 		response := AuthResponse{
 			Success: false,
 			Error:   "invalid username or password",
@@ -252,6 +257,7 @@ func (a *AuthServer) Login(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(response)
 		return
 	}
+	log.Printf("[LOGIN] Password verified successfully for user '%s'", req.Username)
 
 	// Generate JWT token
 	token, err := a.generateToken(user)

@@ -113,7 +113,13 @@ func (udb *UserDB) GetUserByUsername(username string) (*User, error) {
 		}
 		userID := usernameIndex.Get([]byte(username))
 		if userID == nil {
-			return fmt.Errorf("user not found")
+			// Debug: list all usernames in index
+			c := usernameIndex.Cursor()
+			keys := []string{}
+			for k, _ := c.First(); k != nil; k, _ = c.Next() {
+				keys = append(keys, string(k))
+			}
+			return fmt.Errorf("user not found (looking for '%s', available: %v)", username, keys)
 		}
 
 		usersBucket := tx.Bucket([]byte("users"))
