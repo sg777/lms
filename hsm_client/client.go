@@ -2,11 +2,14 @@ package hsm_client
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/verifiable-state-chains/lms/lms_wrapper"
 )
 
 // HSMClient is a client for interacting with HSM server
@@ -218,5 +221,18 @@ func QueryKeyIndex(raftEndpoint, keyID string) (uint64, bool, error) {
 	}
 	
 	return uint64(index), true, nil
+}
+
+// VerifySignature verifies an LMS signature
+// Returns true if signature is valid, false otherwise
+func VerifySignature(publicKey []byte, message string, signatureBase64 string) (bool, error) {
+	// Decode signature from base64
+	signature, err := base64.StdEncoding.DecodeString(signatureBase64)
+	if err != nil {
+		return false, fmt.Errorf("failed to decode signature: %v", err)
+	}
+
+	// Use LMS wrapper to verify
+	return lms_wrapper.VerifySignature(publicKey, []byte(message), signature)
 }
 

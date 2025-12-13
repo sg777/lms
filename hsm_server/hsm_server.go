@@ -7,6 +7,9 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
+
+	"github.com/verifiable-state-chains/lms/lms_wrapper"
 )
 
 // LMSKey represents an LMS key managed by the HSM server
@@ -16,18 +19,28 @@ type LMSKey struct {
 	Created    string    `json:"created"`
 	PrivateKey []byte    `json:"private_key,omitempty"` // Serialized LMS private key (not sent to clients)
 	PublicKey  []byte    `json:"public_key,omitempty"`  // Serialized LMS public key
-	Params     string    `json:"params,omitempty"`      // LMS parameters (e.g., "LMS_SHA256_M32_H5")
+	Params     string    `json:"params,omitempty"`      // LMS parameters description (e.g., "LMS: h=5, w=1 (max 32 signatures)")
+	
+	// LMS parameters needed for loading working key (stored but not sent to clients)
+	Levels  int   `json:"-"` // Number of levels
+	LmType  []int `json:"-"` // LMS parameter set array
+	OtsType []int `json:"-"` // OTS parameter set array
 }
 
 // HSMServer manages LMS keys
 type HSMServer struct {
-	mu                sync.RWMutex
-	keys              map[string]*LMSKey // key_id -> LMSKey (in-memory cache)
-	db                *KeyDB              // Persistent database
-	port              int
-	raftEndpoints     []string            // Raft cluster endpoints
+	mu                 sync.RWMutex
+	keys               map[string]*LMSKey // key_id -> LMSKey (in-memory cache)
+	db                 *KeyDB             // Persistent database
+	port               int
+	raftEndpoints      []string           // Raft cluster endpoints
 	attestationPrivKey *ecdsa.PrivateKey  // EC private key for signing
 	attestationPubKey  *ecdsa.PublicKey   // EC public key
+	
+	// Standard LMS parameters (h=5, w=1)
+	defaultLevels int
+	defaultLmType []int
+	defaultOtsType []int
 }
 
 // NewHSMServer creates a new HSM server
@@ -57,12 +70,16 @@ func NewHSMServer(port int, raftEndpoints []string) (*HSMServer, error) {
 	}
 
 	return &HSMServer{
-		keys:              keyMap,
-		db:                db,
-		port:              port,
-		raftEndpoints:     raftEndpoints,
+		keys:               keyMap,
+		db:                 db,
+		port:               port,
+		raftEndpoints:      raftEndpoints,
 		attestationPrivKey: privKey,
 		attestationPubKey:  pubKey,
+		// Standard parameters: h=5, w=1
+		defaultLevels: 1,
+		defaultLmType: []int{lms_wrapper.LMS_SHA256_M32_H5},
+		defaultOtsType: []int{lms_wrapper.LMOTS_SHA256_N32_W1},
 	}, nil
 }
 
@@ -87,8 +104,7 @@ type ListKeysResponse struct {
 	Error   string   `json:"error,omitempty"`
 }
 
-// generateKey generates a new LMS key
-// TODO: This will be updated to generate actual LMS keys using hash-sigs library
+// generateKey generates a new LMS key using the LMS wrapper
 func (s *HSMServer) generateKey(keyID string) (*LMSKey, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -103,15 +119,31 @@ func (s *HSMServer) generateKey(keyID string) (*LMSKey, error) {
 		return nil, fmt.Errorf("key_id %s already exists", keyID)
 	}
 
-	// TODO: Generate actual LMS key pair using hash-sigs library
-	// For now, create placeholder key
-	key := &LMSKey{
-		KeyID:   keyID,
-		Index:   0, // Always starts at 0
-		Created: fmt.Sprintf("%d", len(s.keys)+1), // Simple timestamp
-		Params:  "LMS_SHA256_M32_H5", // Placeholder - will be set by actual key generation
-		// PrivateKey and PublicKey will be set by actual LMS key generation
+	// Generate actual LMS key pair using hash-sigs library
+	log.Printf("Generating LMS key pair for key_id: %s", keyID)
+	privKey, pubKey, err := lms_wrapper.GenerateKeyPair(s.defaultLevels, s.defaultLmType, s.defaultOtsType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate LMS key pair: %v", err)
 	}
+
+	// Get parameter description
+	paramDesc := lms_wrapper.FormatParameterSet(s.defaultLevels, s.defaultLmType, s.defaultOtsType)
+	log.Printf("Generated LMS key: %s", paramDesc)
+
+	// Create key object
+	key := &LMSKey{
+		KeyID:      keyID,
+		Index:      0, // Always starts at 0
+		Created:    time.Now().Format(time.RFC3339),
+		PrivateKey: privKey,
+		PublicKey:  pubKey,
+		Params:     paramDesc,
+		Levels:     s.defaultLevels,
+		LmType:     make([]int, len(s.defaultLmType)),
+		OtsType:    make([]int, len(s.defaultOtsType)),
+	}
+	copy(key.LmType, s.defaultLmType)
+	copy(key.OtsType, s.defaultOtsType)
 
 	// Store in database
 	if err := s.db.StoreKey(keyID, key); err != nil {
@@ -120,6 +152,8 @@ func (s *HSMServer) generateKey(keyID string) (*LMSKey, error) {
 
 	// Store in memory cache
 	s.keys[keyID] = key
+	log.Printf("Successfully generated and stored LMS key: %s (pubkey: %d bytes, privkey: %d bytes)", 
+		keyID, len(pubKey), len(privKey))
 	return key, nil
 }
 

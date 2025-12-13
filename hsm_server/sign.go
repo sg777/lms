@@ -10,7 +10,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+
+	"github.com/verifiable-state-chains/lms/lms_wrapper"
 )
 
 // SignRequest is the request to sign a message
@@ -235,11 +238,11 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 3: Load LMS key from database
-	key, err := s.db.GetKey(req.KeyID)
+	lmsKey, err := s.db.GetKey(req.KeyID)
 	if err != nil {
 		// Key might not exist in DB yet (old keys), try memory cache
 		s.mu.RLock()
-		key, exists := s.keys[req.KeyID]
+		cachedKey, exists := s.keys[req.KeyID]
 		s.mu.RUnlock()
 		if !exists {
 			response := SignResponse{
@@ -251,12 +254,85 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(response)
 			return
 		}
+		lmsKey = cachedKey
 	}
 
 	// Step 4: Sign the message with LMS key
-	// TODO: Implement actual LMS signing using hash-sigs library
-	// For now, return placeholder
-	signature := "" // TODO: Generate actual LMS signature using key.PrivateKey
+	if len(lmsKey.PrivateKey) == 0 {
+		response := SignResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Key %s has no private key (cannot sign)", req.KeyID),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Load working key from private key
+	workingKey, err := lms_wrapper.LoadWorkingKey(
+		lmsKey.PrivateKey,
+		lmsKey.Levels,
+		lmsKey.LmType,
+		lmsKey.OtsType,
+		0, // memory target: 0 = minimal memory
+	)
+	if err != nil {
+		response := SignResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to load working key: %v", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	defer workingKey.Free()
+
+	// Generate LMS signature
+	messageBytes := []byte(req.Message)
+	signatureBytes, err := workingKey.GenerateSignature(messageBytes)
+	if err != nil {
+		response := SignResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to generate LMS signature: %v", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Get updated private key state (LMS is stateful)
+	updatedPrivKey := workingKey.GetPrivateKey()
+	if len(updatedPrivKey) == 0 {
+		response := SignResponse{
+			Success: false,
+			Error:   "Failed to get updated private key state",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Update private key in database (stateful - key changes after each signature)
+	lmsKey.PrivateKey = updatedPrivKey
+	if err := s.db.StoreKey(req.KeyID, lmsKey); err != nil {
+		log.Printf("Warning: Failed to update private key state in DB: %v", err)
+	}
+
+	// Also update in-memory cache
+	s.mu.Lock()
+	if cachedKey, exists := s.keys[req.KeyID]; exists {
+		cachedKey.PrivateKey = updatedPrivKey
+	}
+	s.mu.Unlock()
+
+	// Encode signature as base64 for JSON response
+	signature := base64.StdEncoding.EncodeToString(signatureBytes)
+	log.Printf("[DEBUG] Generated LMS signature for key_id=%s, index=%d, signature_len=%d bytes", 
+		req.KeyID, indexToUse, len(signatureBytes))
 	
 	// Step 5: Update index in database after signing
 	newIndex := indexToUse + 1
