@@ -215,8 +215,8 @@ func (a *AuthServer) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalize username (trim whitespace)
-	req.Username = strings.TrimSpace(req.Username)
+	// Normalize username (trim whitespace and convert to lowercase for consistency)
+	req.Username = strings.TrimSpace(strings.ToLower(req.Username))
 	if req.Username == "" {
 		response := AuthResponse{
 			Success: false,
@@ -228,7 +228,7 @@ func (a *AuthServer) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user by username
+	// Get user by username (case-insensitive)
 	user, err := a.userDB.GetUserByUsername(req.Username)
 	if err != nil || user == nil {
 		response := AuthResponse{
