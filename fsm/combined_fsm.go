@@ -114,6 +114,10 @@ func (f *CombinedFSM) GetAllKeyIndices() map[string]uint64 {
 	return f.keyIndexFSM.GetAllKeyIndices()
 }
 
+func (f *CombinedFSM) GetAllKeyIDs() []string {
+	return f.keyIndexFSM.GetAllKeyIDs()
+}
+
 func (f *CombinedFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
 	return f.keyIndexFSM.GetKeyChain(keyID)
 }

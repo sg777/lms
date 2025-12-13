@@ -16,9 +16,10 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-// KeyIndexEntry represents an index commitment for a key_id with hash chain
+// KeyIndexEntry represents an index commitment for a pubkey_hash with hash chain
 type KeyIndexEntry struct {
-	KeyID       string `json:"key_id"`
+	KeyID       string `json:"key_id"`        // User-friendly label (for display, can change)
+	PubkeyHash  string `json:"pubkey_hash"`   // SHA-256 hash of LMS public key (primary identifier)
 	Index       uint64 `json:"index"`
 	PreviousHash string `json:"previous_hash"` // SHA-256 hash of the previous entry (genesis: all 0's)
 	Hash        string `json:"hash"`           // SHA-256 hash of this entry (computed on all fields except hash)
@@ -32,12 +33,14 @@ func (e *KeyIndexEntry) ComputeHash() (string, error) {
 	// Create a temporary entry without the Hash field for computing hash
 	tempEntry := struct {
 		KeyID       string `json:"key_id"`
+		PubkeyHash  string `json:"pubkey_hash"`
 		Index       uint64 `json:"index"`
 		PreviousHash string `json:"previous_hash"`
 		Signature   string `json:"signature"`
 		PublicKey   string `json:"public_key"`
 	}{
 		KeyID:       e.KeyID,
+		PubkeyHash:  e.PubkeyHash,
 		Index:       e.Index,
 		PreviousHash: e.PreviousHash,
 		Signature:   e.Signature,
@@ -53,25 +56,33 @@ func (e *KeyIndexEntry) ComputeHash() (string, error) {
 	return base64.StdEncoding.EncodeToString(hash[:]), nil
 }
 
+// ComputePubkeyHash computes SHA-256 hash of the LMS public key
+func ComputePubkeyHash(publicKey []byte) string {
+	hash := sha256.Sum256(publicKey)
+	return base64.StdEncoding.EncodeToString(hash[:])
+}
+
 // GenesisHash is the hash used for the first entry (all zeros)
 const GenesisHash = "0000000000000000000000000000000000000000000000000000000000000000"
 
-// KeyIndexFSM stores key_id -> index mappings with EC signature verification and hash chain
+// KeyIndexFSM stores pubkey_hash -> index mappings with EC signature verification and hash chain
 type KeyIndexFSM struct {
-	mu               sync.RWMutex
-	keyIndices       map[string]uint64              // key_id -> last used index
-	keyHashes        map[string]string              // key_id -> hash of last entry (for hash chain validation)
-	keyEntries       map[string][]*KeyIndexEntry     // key_id -> all entries (for full chain retrieval)
-	attestationPubKey *ecdsa.PublicKey             // Public key for verifying signatures
+	mu                sync.RWMutex
+	pubkeyHashIndices map[string]uint64              // pubkey_hash -> last used index
+	pubkeyHashHashes  map[string]string              // pubkey_hash -> hash of last entry (for hash chain validation)
+	pubkeyHashEntries map[string][]*KeyIndexEntry    // pubkey_hash -> all entries (for full chain retrieval)
+	keyIdToPubkeyHash map[string]string              // key_id -> pubkey_hash (for lookup convenience, latest mapping)
+	attestationPubKey *ecdsa.PublicKey              // Public key for verifying signatures
 }
 
 // NewKeyIndexFSM creates a new key index FSM
 // attestationPubKeyPath: Path to the attestation public key PEM file
 func NewKeyIndexFSM(attestationPubKeyPath string) (*KeyIndexFSM, error) {
 	fsm := &KeyIndexFSM{
-		keyIndices: make(map[string]uint64),
-		keyHashes:  make(map[string]string),
-		keyEntries: make(map[string][]*KeyIndexEntry),
+		pubkeyHashIndices: make(map[string]uint64),
+		pubkeyHashHashes:  make(map[string]string),
+		pubkeyHashEntries: make(map[string][]*KeyIndexEntry),
+		keyIdToPubkeyHash: make(map[string]string),
 	}
 
 	// Load attestation public key
@@ -151,30 +162,43 @@ func (f *KeyIndexFSM) Apply(l *raft.Log) interface{} {
 		return fmt.Sprintf("Error: Hash mismatch: expected %s, got %s", computedHash, entry.Hash)
 	}
 
-	// Check if index is valid (must be > current index for this key_id)
-	currentIndex, exists := f.keyIndices[entry.KeyID]
-	if exists && entry.Index <= currentIndex {
-		return fmt.Sprintf("Error: Index %d is not greater than current index %d for key_id %s",
-			entry.Index, currentIndex, entry.KeyID)
+	// Validate that pubkey_hash is present (required for Phase B)
+	if entry.PubkeyHash == "" {
+		return fmt.Sprintf("Error: pubkey_hash is required but missing in entry")
 	}
 
-	// Store the index and hash (the hash is the actual hash of this commit, computed above)
+	// Use pubkey_hash as the primary identifier for lookups
+	// key_id is kept for display/reference purposes only
+	pubkeyHash := entry.PubkeyHash
+
+	// Check if index is valid (must be > current index for this pubkey_hash)
+	currentIndex, exists := f.pubkeyHashIndices[pubkeyHash]
+	if exists && entry.Index <= currentIndex {
+		return fmt.Sprintf("Error: Index %d is not greater than current index %d for pubkey_hash %s",
+			entry.Index, currentIndex, pubkeyHash)
+	}
+
+	// Store the index and hash using pubkey_hash (the hash is the actual hash of this commit, computed above)
 	// This stored hash will be used as previous_hash for the next entry - never recomputed
-	f.keyIndices[entry.KeyID] = entry.Index
-	f.keyHashes[entry.KeyID] = entry.Hash
+	f.pubkeyHashIndices[pubkeyHash] = entry.Index
+	f.pubkeyHashHashes[pubkeyHash] = entry.Hash
 	
-	// Store the full entry for chain retrieval
+	// Store key_id -> pubkey_hash mapping for lookup convenience (latest mapping)
+	f.keyIdToPubkeyHash[entry.KeyID] = pubkeyHash
+	
+	// Store the full entry for chain retrieval (using pubkey_hash)
 	entryCopy := &KeyIndexEntry{
 		KeyID:       entry.KeyID,
+		PubkeyHash:  entry.PubkeyHash,
 		Index:       entry.Index,
 		PreviousHash: entry.PreviousHash,
 		Hash:        entry.Hash,
 		Signature:   entry.Signature,
 		PublicKey:   entry.PublicKey,
 	}
-	f.keyEntries[entry.KeyID] = append(f.keyEntries[entry.KeyID], entryCopy)
+	f.pubkeyHashEntries[pubkeyHash] = append(f.pubkeyHashEntries[pubkeyHash], entryCopy)
 
-	return fmt.Sprintf("Applied key index: key_id=%s, index=%d, hash=%s", entry.KeyID, entry.Index, entry.Hash)
+	return fmt.Sprintf("Applied key index: key_id=%s, pubkey_hash=%s, index=%d, hash=%s", entry.KeyID, pubkeyHash, entry.Index, entry.Hash)
 }
 
 // VerifySignature verifies the signature of a key index entry
@@ -283,10 +307,14 @@ func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 // validateHashChain validates that the previous_hash matches the stored hash from the previous entry
 // We use the stored hash directly - never recompute it
 func (f *KeyIndexFSM) validateHashChain(entry *KeyIndexEntry) error {
-	lastHash, exists := f.keyHashes[entry.KeyID]
+	if entry.PubkeyHash == "" {
+		return fmt.Errorf("pubkey_hash is required for hash chain validation")
+	}
+
+	lastHash, exists := f.pubkeyHashHashes[entry.PubkeyHash]
 
 	if !exists {
-		// First entry for this key_id: previous_hash must be genesis
+		// First entry for this pubkey_hash: previous_hash must be genesis
 		if entry.PreviousHash != GenesisHash {
 			return fmt.Errorf("first entry previous_hash mismatch: expected %s (genesis), got %s",
 				GenesisHash, entry.PreviousHash)
@@ -304,31 +332,52 @@ func (f *KeyIndexFSM) validateHashChain(entry *KeyIndexEntry) error {
 	return nil
 }
 
-// GetKeyIndex returns the last used index for a key_id
+// GetKeyIndex returns the last used index for a key_id (looks up via pubkey_hash)
+// DEPRECATED: Use GetIndexByPubkeyHash or GetIndexByKeyID instead
 func (f *KeyIndexFSM) GetKeyIndex(keyID string) (uint64, bool) {
+	// Try to find pubkey_hash from key_id mapping
+	pubkeyHash, exists := f.keyIdToPubkeyHash[keyID]
+	if !exists {
+		return 0, false
+	}
+	return f.GetIndexByPubkeyHash(pubkeyHash)
+}
+
+// GetIndexByPubkeyHash returns the last used index for a pubkey_hash
+func (f *KeyIndexFSM) GetIndexByPubkeyHash(pubkeyHash string) (uint64, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	index, exists := f.keyIndices[keyID]
+	index, exists := f.pubkeyHashIndices[pubkeyHash]
 	return index, exists
 }
 
-// GetKeyHash returns the hash of the last entry for a key_id
-func (f *KeyIndexFSM) GetKeyHash(keyID string) (string, bool) {
+// GetHashByPubkeyHash returns the hash of the last entry for a pubkey_hash
+func (f *KeyIndexFSM) GetHashByPubkeyHash(pubkeyHash string) (string, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	hash, exists := f.keyHashes[keyID]
+	hash, exists := f.pubkeyHashHashes[pubkeyHash]
 	return hash, exists
 }
 
-// GetKeyIndexAndHash returns both the last index and hash for a key_id
-func (f *KeyIndexFSM) GetKeyIndexAndHash(keyID string) (uint64, string, bool) {
+// GetKeyHash returns the hash of the last entry for a key_id (looks up via pubkey_hash)
+// DEPRECATED: Use GetHashByPubkeyHash instead
+func (f *KeyIndexFSM) GetKeyHash(keyID string) (string, bool) {
+	pubkeyHash, exists := f.keyIdToPubkeyHash[keyID]
+	if !exists {
+		return "", false
+	}
+	return f.GetHashByPubkeyHash(pubkeyHash)
+}
+
+// GetIndexAndHashByPubkeyHash returns both the last index and hash for a pubkey_hash
+func (f *KeyIndexFSM) GetIndexAndHashByPubkeyHash(pubkeyHash string) (uint64, string, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	index, indexExists := f.keyIndices[keyID]
-	hash, hashExists := f.keyHashes[keyID]
+	index, indexExists := f.pubkeyHashIndices[pubkeyHash]
+	hash, hashExists := f.pubkeyHashHashes[pubkeyHash]
 
 	if !indexExists || !hashExists {
 		return 0, "", false
@@ -337,24 +386,46 @@ func (f *KeyIndexFSM) GetKeyIndexAndHash(keyID string) (uint64, string, bool) {
 	return index, hash, true
 }
 
-// GetAllKeyIndices returns all key_id -> index mappings
+// GetKeyIndexAndHash returns both the last index and hash for a key_id (looks up via pubkey_hash)
+// DEPRECATED: Use GetIndexAndHashByPubkeyHash instead
+func (f *KeyIndexFSM) GetKeyIndexAndHash(keyID string) (uint64, string, bool) {
+	pubkeyHash, exists := f.keyIdToPubkeyHash[keyID]
+	if !exists {
+		return 0, "", false
+	}
+	return f.GetIndexAndHashByPubkeyHash(pubkeyHash)
+}
+
+// GetAllKeyIndices returns all pubkey_hash -> index mappings
 func (f *KeyIndexFSM) GetAllKeyIndices() map[string]uint64 {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
 	result := make(map[string]uint64)
-	for k, v := range f.keyIndices {
+	for k, v := range f.pubkeyHashIndices {
 		result[k] = v
 	}
 	return result
 }
 
-// GetKeyChain returns all entries for a key_id (full hash chain)
-func (f *KeyIndexFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
+// GetAllKeyIDs returns all key_id values (for backward compatibility in explorer)
+func (f *KeyIndexFSM) GetAllKeyIDs() []string {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	entries, exists := f.keyEntries[keyID]
+	result := make([]string, 0, len(f.keyIdToPubkeyHash))
+	for keyID := range f.keyIdToPubkeyHash {
+		result = append(result, keyID)
+	}
+	return result
+}
+
+// GetChainByPubkeyHash returns all entries for a pubkey_hash (full hash chain)
+func (f *KeyIndexFSM) GetChainByPubkeyHash(pubkeyHash string) ([]*KeyIndexEntry, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	entries, exists := f.pubkeyHashEntries[pubkeyHash]
 	if !exists || len(entries) == 0 {
 		return nil, false
 	}
@@ -364,6 +435,7 @@ func (f *KeyIndexFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
 	for i, entry := range entries {
 		result[i] = &KeyIndexEntry{
 			KeyID:       entry.KeyID,
+			PubkeyHash:  entry.PubkeyHash,
 			Index:       entry.Index,
 			PreviousHash: entry.PreviousHash,
 			Hash:        entry.Hash,
@@ -375,6 +447,16 @@ func (f *KeyIndexFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
 	return result, true
 }
 
+// GetKeyChain returns all entries for a key_id (looks up via pubkey_hash)
+// DEPRECATED: Use GetChainByPubkeyHash instead
+func (f *KeyIndexFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
+	pubkeyHash, exists := f.keyIdToPubkeyHash[keyID]
+	if !exists {
+		return nil, false
+	}
+	return f.GetChainByPubkeyHash(pubkeyHash)
+}
+
 // Snapshot creates a snapshot
 func (f *KeyIndexFSM) Snapshot() (raft.FSMSnapshot, error) {
 	f.mu.RLock()
@@ -383,16 +465,22 @@ func (f *KeyIndexFSM) Snapshot() (raft.FSMSnapshot, error) {
 	// Create copies to avoid race conditions
 	indicesCopy := make(map[string]uint64)
 	hashesCopy := make(map[string]string)
-	for k, v := range f.keyIndices {
+	keyIdMappingCopy := make(map[string]string)
+	
+	for k, v := range f.pubkeyHashIndices {
 		indicesCopy[k] = v
 	}
-	for k, v := range f.keyHashes {
+	for k, v := range f.pubkeyHashHashes {
 		hashesCopy[k] = v
+	}
+	for k, v := range f.keyIdToPubkeyHash {
+		keyIdMappingCopy[k] = v
 	}
 
 	return &keyIndexSnapshot{
-		keyIndices: indicesCopy,
-		keyHashes:  hashesCopy,
+		pubkeyHashIndices: indicesCopy,
+		pubkeyHashHashes:  hashesCopy,
+		keyIdToPubkeyHash: keyIdMappingCopy,
 	}, nil
 }
 
@@ -403,17 +491,20 @@ func (f *KeyIndexFSM) Restore(r io.ReadCloser) error {
 }
 
 type keyIndexSnapshot struct {
-	keyIndices map[string]uint64
-	keyHashes  map[string]string
+	pubkeyHashIndices map[string]uint64
+	pubkeyHashHashes  map[string]string
+	keyIdToPubkeyHash map[string]string
 }
 
 func (s *keyIndexSnapshot) Persist(sink raft.SnapshotSink) error {
 	snapshot := struct {
-		KeyIndices map[string]uint64 `json:"key_indices"`
-		KeyHashes  map[string]string `json:"key_hashes"`
+		PubkeyHashIndices map[string]uint64 `json:"pubkey_hash_indices"`
+		PubkeyHashHashes  map[string]string `json:"pubkey_hash_hashes"`
+		KeyIdToPubkeyHash map[string]string `json:"key_id_to_pubkey_hash"`
 	}{
-		KeyIndices: s.keyIndices,
-		KeyHashes:  s.keyHashes,
+		PubkeyHashIndices: s.pubkeyHashIndices,
+		PubkeyHashHashes:  s.pubkeyHashHashes,
+		KeyIdToPubkeyHash: s.keyIdToPubkeyHash,
 	}
 
 	data, err := json.Marshal(snapshot)

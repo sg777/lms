@@ -18,13 +18,28 @@ func (s *APIServer) handleKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get all key indices from FSM
+	// Get all key IDs from FSM (Phase B: use GetAllKeyIDs which returns key_id values)
+	if keyIndexFSM, ok := s.fsm.(interface{ GetAllKeyIDs() []string }); ok {
+		keyIDs := keyIndexFSM.GetAllKeyIDs()
+		
+		response := map[string]interface{}{
+			"success": true,
+			"keys":    keyIDs,
+			"count":   len(keyIDs),
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	
+	// Fallback: try to get from GetAllKeyIndices (but this returns pubkey_hash -> index, not ideal)
 	allKeys := s.fsm.GetAllKeyIndices()
-
-	// Extract just the key IDs (keys of the map)
+	
+	// Extract pubkey_hashes (fallback - not ideal since we want key_ids)
 	keyIDs := make([]string, 0, len(allKeys))
-	for keyID := range allKeys {
-		keyIDs = append(keyIDs, keyID)
+	for pubkeyHash := range allKeys {
+		keyIDs = append(keyIDs, pubkeyHash)
 	}
 
 	response := map[string]interface{}{

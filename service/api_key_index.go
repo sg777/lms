@@ -269,6 +269,7 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 // CommitIndexRequest is the request to commit an index for a key_id
 type CommitIndexRequest struct {
 	KeyID       string `json:"key_id"`
+	PubkeyHash  string `json:"pubkey_hash"`   // Phase B: primary identifier
 	Index       uint64 `json:"index"`
 	PreviousHash string `json:"previous_hash"` // SHA-256 hash of previous entry (genesis: all 0's)
 	Hash        string `json:"hash"`           // SHA-256 hash of this entry
@@ -345,9 +346,22 @@ func (s *APIServer) handleCommitIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate pubkey_hash is present (Phase B requirement)
+	if req.PubkeyHash == "" {
+		response := CommitIndexResponse{
+			Success: false,
+			Error:   "pubkey_hash is required (Phase B: primary identifier)",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	// Create KeyIndexEntry for validation
 	entry := fsm.KeyIndexEntry{
 		KeyID:       req.KeyID,
+		PubkeyHash:  req.PubkeyHash, // Phase B: primary identifier
 		Index:       req.Index,
 		PreviousHash: req.PreviousHash,
 		Hash:        req.Hash,

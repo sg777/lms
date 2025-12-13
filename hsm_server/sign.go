@@ -40,12 +40,12 @@ type StructuredSignature struct {
 	Signature string `json:"signature"` // Base64-encoded LMS signature
 }
 
-// queryRaftForKeyIndex queries Raft cluster for key_id's last index and hash
-func (s *HSMServer) queryRaftForKeyIndex(keyID string) (uint64, string, bool, error) {
+// queryRaftByPubkeyHash queries Raft cluster for pubkey_hash's last index and hash
+func (s *HSMServer) queryRaftByPubkeyHash(pubkeyHash string) (uint64, string, bool, error) {
 	var lastErr error
 	
 	for _, endpoint := range s.raftEndpoints {
-		url := fmt.Sprintf("%s/key/%s/index", endpoint, keyID)
+		url := fmt.Sprintf("%s/pubkey_hash/%s/index", endpoint, pubkeyHash)
 		
 		resp, err := http.Get(url)
 		if err != nil {
@@ -96,7 +96,10 @@ func (s *HSMServer) queryRaftForKeyIndex(keyID string) (uint64, string, bool, er
 }
 
 // commitIndexToRaft commits an index to Raft cluster with EC signature and hash chain
-func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash string) error {
+func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash string, lmsPublicKey []byte) error {
+	// Compute pubkey_hash from LMS public key (Phase B: primary identifier)
+	pubkeyHash := fsm.ComputePubkeyHash(lmsPublicKey)
+	
 	// Create data to sign: key_id:index (signature format unchanged for compatibility)
 	data := fmt.Sprintf("%s:%d", keyID, index)
 	dataHash := sha256.Sum256([]byte(data))
@@ -119,6 +122,7 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash s
 	// Create entry (without hash first, so we can compute it)
 	entry := fsm.KeyIndexEntry{
 		KeyID:       keyID,
+		PubkeyHash:  pubkeyHash, // Phase B: primary identifier
 		Index:       index,
 		PreviousHash: previousHash,
 		Hash:        "", // Will be computed
@@ -139,6 +143,7 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash s
 	// Create commit request
 	commitReq := map[string]interface{}{
 		"key_id":       entry.KeyID,
+		"pubkey_hash":  entry.PubkeyHash, // Phase B: include pubkey_hash
 		"index":        entry.Index,
 		"previous_hash": entry.PreviousHash,
 		"hash":         entry.Hash,
@@ -269,8 +274,31 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Step 1: Query Raft cluster for key_id's last index and hash
-	lastIndex, lastHash, exists, err := s.queryRaftForKeyIndex(req.KeyID)
+	// Step 1: Load LMS key from database (need public key to compute pubkey_hash)
+	lmsKey, err := s.db.GetKey(req.KeyID)
+	if err != nil {
+		// Key might not exist in DB yet (old keys), try memory cache
+		s.mu.RLock()
+		cachedKey, exists := s.keys[req.KeyID]
+		s.mu.RUnlock()
+		if !exists {
+			response := SignResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Key %s not found", req.KeyID),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+		lmsKey = cachedKey
+	}
+
+	// Compute pubkey_hash from LMS public key (Phase B)
+	pubkeyHash := fsm.ComputePubkeyHash(lmsKey.PublicKey)
+
+	// Step 2: Query Raft cluster for pubkey_hash's last index and hash
+	lastIndex, lastHash, exists, err := s.queryRaftByPubkeyHash(pubkeyHash)
 	if err != nil {
 		response := SignResponse{
 			Success: false,
@@ -286,10 +314,10 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 	var previousHash string
 	
 	if !exists {
-		// Step 2: Key not found, commit index 0 to Raft with genesis hash
+		// Step 3: Key not found, commit index 0 to Raft with genesis hash
 		indexToUse = 0
 		previousHash = fsm.GenesisHash
-		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash); err != nil {
+		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash, lmsKey.PublicKey); err != nil {
 			response := SignResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to commit index to Raft: %v", err),
@@ -318,8 +346,8 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		// Use the actual stored hash from the previous commit
 		previousHash = lastHash
 		
-		// Commit the new index
-		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash); err != nil {
+		// Step 3: Commit the new index
+		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash, lmsKey.PublicKey); err != nil {
 			response := SignResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to commit index to Raft: %v", err),
@@ -329,26 +357,6 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(response)
 			return
 		}
-	}
-
-	// Step 3: Load LMS key from database
-	lmsKey, err := s.db.GetKey(req.KeyID)
-	if err != nil {
-		// Key might not exist in DB yet (old keys), try memory cache
-		s.mu.RLock()
-		cachedKey, exists := s.keys[req.KeyID]
-		s.mu.RUnlock()
-		if !exists {
-			response := SignResponse{
-				Success: false,
-				Error:   fmt.Sprintf("Key %s not found", req.KeyID),
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(response)
-			return
-		}
-		lmsKey = cachedKey
 	}
 
 	// Ensure LmType and OtsType are set (they might be missing from old keys)
