@@ -26,7 +26,7 @@ func TestHSMProtocolBasic(t *testing.T) {
 	genesisHash := "test-genesis-hash"
 	
 	hsmClient := client.NewHSMClient(endpoints, genesisHash)
-	protocol := client.NewHSMProtocol(hsmClient, genesisHash)
+	protocol := client.NewHSMProtocol(hsmClient, genesisHash, nil)
 	
 	state := protocol.GetState()
 	if state == nil {
@@ -49,7 +49,7 @@ func TestHSMProtocolCreatePayload(t *testing.T) {
 	genesisHash := "test-genesis-hash"
 	
 	hsmClient := client.NewHSMClient(endpoints, genesisHash)
-	protocol := client.NewHSMProtocol(hsmClient, genesisHash)
+	protocol := client.NewHSMProtocol(hsmClient, genesisHash, nil)
 	
 	// Create genesis payload
 	payload, err := protocol.CreateAttestationPayload(
@@ -82,7 +82,7 @@ func TestHSMProtocolCreateAttestationResponse(t *testing.T) {
 	genesisHash := "test-genesis-hash"
 	
 	hsmClient := client.NewHSMClient(endpoints, genesisHash)
-	protocol := client.NewHSMProtocol(hsmClient, genesisHash)
+	protocol := client.NewHSMProtocol(hsmClient, genesisHash, nil)
 	
 	payload := &models.ChainedPayload{
 		PreviousHash:   genesisHash,

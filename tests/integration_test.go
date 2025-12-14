@@ -163,7 +163,7 @@ func TestSingleHSMWorkflow(t *testing.T) {
 
 	endpoints := cluster.GetServiceEndpoints()
 	hsmClient := client.NewHSMClient(endpoints, "test-hsm-1")
-	protocol := client.NewHSMProtocol(hsmClient, genesisHash)
+	protocol := client.NewHSMProtocol(hsmClient, genesisHash, nil)
 
 	// Sync state
 	if err := protocol.SyncState(); err != nil {
@@ -257,7 +257,7 @@ func TestValidationIntegration(t *testing.T) {
 
 	endpoints := cluster.GetServiceEndpoints()
 	hsmClient := client.NewHSMClient(endpoints, "test-hsm-1")
-	protocol := client.NewHSMProtocol(hsmClient, genesisHash)
+	protocol := client.NewHSMProtocol(hsmClient, genesisHash, nil)
 
 	// Sync state
 	if err := protocol.SyncState(); err != nil {

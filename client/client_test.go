@@ -50,7 +50,7 @@ func TestHSMProtocol_NewHSMProtocol(t *testing.T) {
 	client := NewHSMClient(endpoints, "test-hsm-1")
 	genesisHash := "test-genesis-hash"
 	
-	protocol := NewHSMProtocol(client, genesisHash)
+	protocol := NewHSMProtocol(client, genesisHash, nil)
 	
 	if protocol == nil {
 		t.Fatal("NewHSMProtocol returned nil")

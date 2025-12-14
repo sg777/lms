@@ -41,7 +41,7 @@ func NewHSMSimulator(
 	genesisHash string,
 ) *HSMSimulator {
 	hsmClient := client.NewHSMClient(serviceEndpoints, id)
-	protocol := client.NewHSMProtocol(hsmClient, genesisHash)
+	protocol := client.NewHSMProtocol(hsmClient, genesisHash, nil)
 
 	return &HSMSimulator{
 		id:           id,

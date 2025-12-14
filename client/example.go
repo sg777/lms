@@ -30,8 +30,8 @@ func ExampleHSMClientUsage() {
 	systemBundle := []byte("system-bundle-config")
 	genesisHash := ComputeGenesisHash(lmsPublicKey, systemBundle)
 	
-	// Step 3: Create protocol instance
-	protocol := NewHSMProtocol(client, genesisHash)
+	// Step 3: Create protocol instance (without blockchain fallback)
+	protocol := NewHSMProtocol(client, genesisHash, nil)
 	
 	// Step 4: Sync state (fetch latest head from service)
 	fmt.Println("Syncing state with service...")
@@ -111,7 +111,7 @@ func ExampleCompleteWorkflow() {
 	
 	client := NewHSMClient(serviceEndpoints, "hsm-partition-001")
 	genesisHash := ComputeGenesisHash([]byte("lms-key"), []byte("system-bundle"))
-	protocol := NewHSMProtocol(client, genesisHash)
+	protocol := NewHSMProtocol(client, genesisHash, nil)
 	
 	// Hash the message
 	message := []byte("message to sign")
