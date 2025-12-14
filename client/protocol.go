@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/verifiable-state-chains/lms/blockchain"
 	"github.com/verifiable-state-chains/lms/models"
 )
 
@@ -28,20 +29,31 @@ func NewProtocolState() *ProtocolState {
 	}
 }
 
+// BlockchainConfig holds optional blockchain fallback configuration
+type BlockchainConfig struct {
+	Enabled      bool   // Whether blockchain fallback is enabled
+	VerusClient  *blockchain.VerusClient // Verus client (nil if not enabled)
+	IdentityName string // Verus identity name (e.g., "sg777z.chips.vrsc@")
+	PubkeyHashHex string // Pubkey hash in hex format (for blockchain commits)
+}
+
 // HSMProtocol implements the complete HSM protocol workflow
 type HSMProtocol struct {
-	client *HSMClient
-	state  *ProtocolState
-	genesisHash string // Hash of LMS public key + system bundle
+	client           *HSMClient
+	state            *ProtocolState
+	genesisHash      string             // Hash of LMS public key + system bundle
+	blockchainConfig *BlockchainConfig  // Optional blockchain fallback config
 }
 
 // NewHSMProtocol creates a new HSM protocol instance
 // genesisHash: Hash of LMS public key + system bundle (for genesis entry)
-func NewHSMProtocol(client *HSMClient, genesisHash string) *HSMProtocol {
+// blockchainConfig: Optional blockchain fallback configuration (nil to disable)
+func NewHSMProtocol(client *HSMClient, genesisHash string, blockchainConfig *BlockchainConfig) *HSMProtocol {
 	return &HSMProtocol{
-		client:      client,
-		state:       NewProtocolState(),
-		genesisHash: genesisHash,
+		client:           client,
+		state:            NewProtocolState(),
+		genesisHash:      genesisHash,
+		blockchainConfig: blockchainConfig,
 	}
 }
 
@@ -176,11 +188,46 @@ func (p *HSMProtocol) CommitAttestation(
 	
 	committed, raftIndex, raftTerm, err := p.client.ProposeAttestation(attestation)
 	
-	if err != nil || !committed {
-		// Discard Rule: If rejected or timeout, mark index as unusable
-		p.state.UnusableIndices[lmsIndex] = true
-		return false, 0, 0, fmt.Errorf("attestation rejected or timeout: %v", err)
+	// For testing: Always commit to blockchain if enabled (not just as fallback)
+	var blockchainErr error
+	if p.blockchainConfig != nil && p.blockchainConfig.Enabled && p.blockchainConfig.VerusClient != nil {
+		_, _, blockchainErr = p.blockchainConfig.VerusClient.CommitLMSIndexWithPubkeyHash(
+			p.blockchainConfig.IdentityName,
+			p.blockchainConfig.PubkeyHashHex,
+			fmt.Sprintf("%d", lmsIndex),
+		)
 	}
+	
+	if err != nil || !committed {
+		// Raft commit failed
+		if blockchainErr == nil {
+			// Blockchain commit succeeded - use it as fallback
+			// Update state as if committed (but note it's via blockchain)
+			p.state.LastAttestation = attestation
+			p.state.CurrentLMSIndex = lmsIndex
+			p.state.SequenceNumber = payload.SequenceNumber
+			// Set Raft indices to 0 to indicate blockchain commit
+			p.state.LastRaftIndex = 0
+			p.state.LastRaftTerm = 0
+			
+			// Note: We don't mark index as unusable since blockchain commit succeeded
+			return true, 0, 0, nil // Success via blockchain fallback
+		}
+		
+		// Both Raft and blockchain failed
+		// Discard Rule: If both fail, mark index as unusable
+		p.state.UnusableIndices[lmsIndex] = true
+		return false, 0, 0, fmt.Errorf("attestation rejected/timeout on Raft AND blockchain failed: raft=%v, blockchain=%v", err, blockchainErr)
+	}
+	
+	// Raft commit succeeded
+	if blockchainErr != nil {
+		// Raft succeeded but blockchain failed - still return success (Raft is primary)
+		// In production, you might want to log this as a warning
+		// For now, we continue as Raft is the primary source of truth
+	}
+	
+	// Both succeeded (or at least Raft succeeded)
 	
 	// Success! Update state
 	p.state.LastAttestation = attestation
