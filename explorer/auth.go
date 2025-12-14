@@ -22,7 +22,7 @@ type User struct {
 	ID           string    `json:"id"`
 	Username     string    `json:"username"`
 	Email        string    `json:"email,omitempty"`
-	PasswordHash string    `json:"-"` // Never sent to client
+	PasswordHash string    `json:"password_hash"` // Stored in DB but excluded from API responses
 	CreatedAt    time.Time `json:"created_at"`
 }
 
