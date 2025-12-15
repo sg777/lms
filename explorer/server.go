@@ -129,6 +129,11 @@ func (s *ExplorerServer) Start() error {
 	mux.HandleFunc("/api/my/import", s.handleImportKey)
 	mux.HandleFunc("/api/my/delete", s.handleDeleteKey)
 	
+	// Wallet endpoints
+	mux.HandleFunc("/api/my/wallet/list", s.handleWalletList)
+	mux.HandleFunc("/api/my/wallet/create", s.handleWalletCreate)
+	mux.HandleFunc("/api/my/wallet/balance", s.handleWalletBalance)
+	
 	// Static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./explorer/static"))))
 	
