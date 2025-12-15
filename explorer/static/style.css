@@ -264,6 +264,20 @@ tbody tr:last-child td {
     max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.external-link {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s;
+    word-break: break-all;
+}
+
+.external-link:hover {
+    color: #5568d3;
+    text-decoration: underline;
+}
     white-space: nowrap;
 }
 

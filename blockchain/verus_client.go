@@ -212,7 +212,8 @@ type GetIdentityResponse struct {
 
 // AttestationCommit represents an LMS attestation committed to blockchain via identity
 type AttestationCommit struct {
-	KeyID          string    `json:"key_id"`          // LMS key ID
+	KeyID          string    `json:"key_id"`          // LMS key ID (normalized VDXF ID)
+	PubkeyHash     string    `json:"pubkey_hash,omitempty"` // Original pubkey_hash (if available)
 	LMSIndex       string    `json:"lms_index"`       // LMS index committed
 	BlockHeight    int64     `json:"block_height"`    // Block height where committed
 	TxID           string    `json:"txid"`            // Transaction ID

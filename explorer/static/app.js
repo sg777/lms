@@ -516,7 +516,8 @@ function displayBlockchainCommits(data, container) {
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Key ID (Normalized)</th>
+                    <th>Canonical Key ID<br><small>(Normalized VDXF ID)</small></th>
+                    <th>Original Key ID<br><small>(Pubkey Hash)</small></th>
                     <th>LMS Index</th>
                     <th>Block Height</th>
                     <th>Transaction ID</th>
@@ -527,18 +528,26 @@ function displayBlockchainCommits(data, container) {
     
     data.commits.forEach((commit, index) => {
         // Handle both camelCase and snake_case field names
-        const keyId = commit.key_id || commit.keyID || '';
+        const canonicalKeyId = commit.key_id || commit.keyID || '';
+        const pubkeyHash = commit.pubkey_hash || commit.pubkeyHash || '';
         const lmsIndex = commit.lms_index || commit.lmsIndex || '';
         const blockHeight = commit.block_height || commit.blockHeight || 0;
         const txid = commit.txid || commit.txID || '';
         
-        const txIdShort = txid ? txid.substring(0, 16) + '...' : 'N/A';
+        // CHIPS explorer link
+        const chipsExplorerUrl = txid ? `https://explorer.chips.cash/tx/${txid}` : '';
+        const txidDisplay = txid || 'N/A';
+        const txidCell = chipsExplorerUrl 
+            ? `<a href="${chipsExplorerUrl}" target="_blank" rel="noopener noreferrer" class="external-link" title="View on CHIPS Explorer">${escapeHtml(txidDisplay)} 🔗</a>`
+            : `<span class="hash-cell" title="${escapeHtml(txidDisplay)}">${escapeHtml(txidDisplay)}</span>`;
+        
         html += `
             <tr>
-                <td class="hash-cell" title="${escapeHtml(keyId)}">${truncateHash(keyId, 20)}</td>
+                <td class="hash-cell" title="${escapeHtml(canonicalKeyId)}">${truncateHash(canonicalKeyId, 24)}</td>
+                <td class="hash-cell" title="${escapeHtml(pubkeyHash || 'Not available')}">${pubkeyHash ? truncateHash(pubkeyHash, 24) : '<em>N/A</em>'}</td>
                 <td><strong>${escapeHtml(lmsIndex)}</strong></td>
                 <td>${blockHeight}</td>
-                <td class="hash-cell" title="${txid}">${txIdShort}</td>
+                <td>${txidCell}</td>
             </tr>
         `;
     });
