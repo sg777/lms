@@ -1,0 +1,3 @@
+[submodule "native/hash-sigs"]
+	path = native/hash-sigs
+	url = https://github.com/cisco/hash-sigs.git

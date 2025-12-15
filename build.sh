@@ -11,6 +11,31 @@ echo "=========================================="
 if [ -d .git ]; then
     echo "Pulling latest code..."
     git pull || echo "Warning: git pull failed (not a git repo or no network)"
+    echo "Initializing/updating Git submodules..."
+    git submodule update --init --recursive || echo "Warning: submodule update failed"
+fi
+
+# Build hash-sigs library if needed
+if [ ! -f native/hash-sigs/hss_lib_thread.a ]; then
+    echo ""
+    echo "Building hash-sigs library..."
+    if [ -f native/hash-sigs/Makefile ]; then
+        cd native/hash-sigs
+        if make hss_lib_thread.a; then
+            echo "   ✅ hash-sigs library built successfully!"
+            cd ../..
+        else
+            echo "   ❌ hash-sigs library build failed!"
+            echo "   Please ensure you have gcc, make, and OpenSSL development libraries installed"
+            exit 1
+        fi
+    else
+        echo "   ❌ Makefile not found in native/hash-sigs/"
+        echo "   Please ensure the hash-sigs submodule is initialized: git submodule update --init --recursive"
+        exit 1
+    fi
+else
+    echo "   ✅ hash-sigs library already exists"
 fi
 
 BUILD_ERRORS=0

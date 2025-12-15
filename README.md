@@ -14,6 +14,20 @@ This implementation provides a replicated log service built on the Raft consensu
 
 ## Quick Start
 
+### Prerequisites
+
+- Go 1.22 or later
+- GCC and Make (for building the hash-sigs library)
+- OpenSSL development libraries
+
+### Initial Setup
+
+If you're cloning this repository for the first time, initialize the Git submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
 ### Build All Components
 
 ```bash
@@ -24,8 +38,13 @@ cd /root/lms
 This builds all components:
 - `lms-service` - Main Raft service
 - `lms-explorer` - Web explorer interface
-- `hsm-server` - HSM server
+- `hsm-server` - HSM server (requires hash-sigs library)
 - `hsm-client` - HSM client tool
+
+The build script automatically:
+- Initializes/updates Git submodules
+- Builds the hash-sigs C library (`native/hash-sigs/hss_lib_thread.a`) if needed
+- Compiles all Go binaries
 
 ### Start the Raft Cluster
 

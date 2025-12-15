@@ -49,4 +49,4 @@ hsm-server
 hsm-client-example
 lms-service
 
-native/hash-sigs/
+# Note: native/hash-sigs/ is now a Git submodule, so don't ignore it
