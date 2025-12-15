@@ -297,18 +297,21 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 	}
 
 	// Call updateidentity RPC with the identity object
-	// Try to specify funding address if provided (some Verus implementations support this)
+	// updateidentity signature: updateidentity "jsonidentity" (returntx) (tokenupdate) (feeoffer) (sourceoffunds)
+	// sourceoffunds is the 5th parameter (optional string): "transparent or private address to source all funds for fees"
 	var result json.RawMessage
 	if fundingAddress != "" {
-		// Try with funding address as second parameter: updateidentity <identity> <fundingaddress>
-		result, err = v.callRPC("updateidentity", []interface{}{identityMap, fundingAddress})
+		// Pass funding address as sourceoffunds (5th parameter)
+		// Parameters: identity, returntx=false, tokenupdate=false, feeoffer=0 (default), sourceoffunds=fundingAddress
+		result, err = v.callRPC("updateidentity", []interface{}{
+			identityMap,  // jsonidentity (required)
+			false,        // returntx (optional, default false)
+			false,        // tokenupdate (optional, default false)
+			0,            // feeoffer (optional, default 0 = standard fee)
+			fundingAddress, // sourceoffunds (optional, explicit funding address)
+		})
 		if err != nil {
-			// If funding address parameter fails, try without it (fallback to auto-select)
-			// This allows compatibility with Verus versions that don't support explicit funding address
-			result, err = v.callRPC("updateidentity", []interface{}{identityMap})
-			if err != nil {
-				return "", fmt.Errorf("failed to update identity: %v", err)
-			}
+			return "", fmt.Errorf("failed to update identity with funding address %s: %v", fundingAddress, err)
 		}
 	} else {
 		// No funding address specified - wallet auto-selects from available addresses
