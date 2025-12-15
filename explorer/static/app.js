@@ -515,7 +515,7 @@ function displayBlockchainCommits(data, container) {
             <thead>
                 <tr>
                     <th>Canonical Key ID<br><small>(Normalized VDXF ID)</small></th>
-                    <th>Original Key ID<br><small>(Pubkey Hash)</small></th>
+                    <th>Key ID Label<br><small>(User-Friendly Name)</small></th>
                     <th>LMS Index</th>
                     <th>Block Height</th>
                     <th>Transaction ID</th>
@@ -527,7 +527,7 @@ function displayBlockchainCommits(data, container) {
     data.commits.forEach((commit, index) => {
         // Handle both camelCase and snake_case field names
         const canonicalKeyId = commit.key_id || commit.keyID || '';
-        const pubkeyHash = commit.pubkey_hash || commit.pubkeyHash || '';
+        const keyIdLabel = commit.key_id_label || commit.keyIDLabel || '';
         const lmsIndex = commit.lms_index || commit.lmsIndex || '';
         const blockHeight = commit.block_height || commit.blockHeight || 0;
         const txid = commit.txid || commit.txID || '';
@@ -542,7 +542,7 @@ function displayBlockchainCommits(data, container) {
         html += `
             <tr>
                 <td class="hash-cell" title="${escapeHtml(canonicalKeyId)}">${truncateHash(canonicalKeyId, 24)}</td>
-                <td class="hash-cell" title="${escapeHtml(pubkeyHash || 'Not available')}">${pubkeyHash ? truncateHash(pubkeyHash, 24) : '<em>N/A</em>'}</td>
+                <td title="${escapeHtml(keyIdLabel || 'Not available')}">${keyIdLabel ? escapeHtml(keyIdLabel) : '<em>N/A</em>'}</td>
                 <td><strong>${escapeHtml(lmsIndex)}</strong></td>
                 <td>${blockHeight}</td>
                 <td>${txidCell}</td>
