@@ -39,7 +39,14 @@ func (s *ExplorerServer) handleMyKeys(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to connect to HSM server: %v", err), http.StatusInternalServerError)
+		// HSM server is not reachable - this is a critical error
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("HSM server is not available at %s: %v. Please ensure HSM server is running.", s.hsmEndpoint, err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(errorMsg)
 		return
 	}
 	defer resp.Body.Close()
@@ -93,7 +100,14 @@ func (s *ExplorerServer) handleGenerateKey(w http.ResponseWriter, r *http.Reques
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to connect to HSM server: %v", err), http.StatusInternalServerError)
+		// HSM server is not reachable - this is a critical error
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("HSM server is not available at %s: %v. Please ensure HSM server is running.", s.hsmEndpoint, err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(errorMsg)
 		return
 	}
 	defer resp.Body.Close()
@@ -147,7 +161,14 @@ func (s *ExplorerServer) handleSign(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to connect to HSM server: %v", err), http.StatusInternalServerError)
+		// HSM server is not reachable - this is a critical error
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("HSM server is not available at %s: %v. Please ensure HSM server is running.", s.hsmEndpoint, err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(errorMsg)
 		return
 	}
 	defer resp.Body.Close()
@@ -202,7 +223,14 @@ func (s *ExplorerServer) handleExportKey(w http.ResponseWriter, r *http.Request)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to connect to HSM server: %v", err), http.StatusInternalServerError)
+		// HSM server is not reachable - this is a critical error
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("HSM server is not available at %s: %v. Please ensure HSM server is running.", s.hsmEndpoint, err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(errorMsg)
 		return
 	}
 	defer resp.Body.Close()
@@ -256,7 +284,14 @@ func (s *ExplorerServer) handleImportKey(w http.ResponseWriter, r *http.Request)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to connect to HSM server: %v", err), http.StatusInternalServerError)
+		// HSM server is not reachable - this is a critical error
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("HSM server is not available at %s: %v. Please ensure HSM server is running.", s.hsmEndpoint, err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(errorMsg)
 		return
 	}
 	defer resp.Body.Close()
@@ -310,7 +345,14 @@ func (s *ExplorerServer) handleDeleteKey(w http.ResponseWriter, r *http.Request)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to connect to HSM server: %v", err), http.StatusInternalServerError)
+		// HSM server is not reachable - this is a critical error
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("HSM server is not available at %s: %v. Please ensure HSM server is running.", s.hsmEndpoint, err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(errorMsg)
 		return
 	}
 	defer resp.Body.Close()
@@ -364,7 +406,14 @@ func (s *ExplorerServer) handleVerify(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to connect to HSM server: %v", err), http.StatusInternalServerError)
+		// HSM server is not reachable - this is a critical error
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("HSM server is not available at %s: %v. Please ensure HSM server is running.", s.hsmEndpoint, err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(errorMsg)
 		return
 	}
 	defer resp.Body.Close()
