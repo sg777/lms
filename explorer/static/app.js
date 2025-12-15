@@ -445,11 +445,25 @@ function displayChain(chain, container) {
 
 // Load blockchain commits from Verus
 async function loadBlockchainCommits() {
+    // Switch to explorer tab if we're in My Keys tab
+    const explorerTab = document.getElementById('explorerTab');
+    const myKeysTab = document.getElementById('myKeysTab');
+    
+    if (myKeysTab && myKeysTab.classList.contains('active')) {
+        // Switch to explorer tab
+        const explorerTabBtn = document.querySelector('.tab-btn[data-tab="explorer"]');
+        if (explorerTabBtn) {
+            explorerTabBtn.click();
+        }
+        // Wait for tab switch to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
     const blockchainSection = document.getElementById('blockchainSection');
     const blockchainView = document.getElementById('blockchainView');
     
     if (!blockchainSection || !blockchainView) {
-        alert('Blockchain view not available');
+        alert('Blockchain view not available. Please ensure you are on the Explorer tab.');
         return;
     }
     
