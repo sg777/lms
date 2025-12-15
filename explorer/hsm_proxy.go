@@ -149,29 +149,71 @@ func (s *ExplorerServer) handleSign(w http.ResponseWriter, r *http.Request) {
 	// Add user_id to request for verification
 	reqBody["user_id"] = claims.UserID
 	
-	// Check wallet balance before signing (if blockchain commits are enabled)
+	// REQUIRED: Check wallet balance before allowing sign operations
+	// Sign operations commit to blockchain, so we require sufficient CHIPS balance
 	// Minimum balance needed: ~0.0001 CHIPS for transaction fee
 	const minBalanceForTx = 0.0001
-	walletAddress, err := s.GetUserWalletForFunding(claims.UserID, minBalanceForTx)
-	if err == nil {
-		// User has wallet, check balance
-		hasBalance, balance, err := s.CheckWalletBalance(walletAddress, minBalanceForTx)
-		if err == nil && !hasBalance {
-			errorMsg := map[string]interface{}{
-				"success": false,
-				"error":   fmt.Sprintf("Insufficient CHIPS balance. Current balance: %.8f CHIPS. Minimum required: %.8f CHIPS. Please load your CHIPS wallet.", balance, minBalanceForTx),
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusPaymentRequired) // 402 Payment Required
-			json.NewEncoder(w).Encode(errorMsg)
-			return
+	
+	// Get user's wallets
+	wallets, err := s.walletDB.GetWalletsByUserID(claims.UserID)
+	if err != nil || len(wallets) == 0 {
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   "No CHIPS wallet found. Please create a wallet in the Wallet tab before signing messages.",
 		}
-		// Add wallet address to request (HSM server can use it for funding)
-		reqBody["wallet_address"] = walletAddress
-	} else {
-		// No wallet found - warn but allow signing (blockchain commit may fail)
-		log.Printf("[WARNING] User %s has no CHIPS wallet. Blockchain commits may fail.", claims.UserID)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired) // 402 Payment Required
+		json.NewEncoder(w).Encode(errorMsg)
+		return
 	}
+	
+	// Check balance for each wallet - need at least one with sufficient balance
+	client := blockchain.NewVerusClient(
+		"http://127.0.0.1:22778",
+		"user1172159772",
+		"pass03465d081d1dfd2b74a2b5de27063f44f6843c64bcd63a6797915eb0ffa25707da",
+	)
+	
+	var walletWithBalance *CHIPSWallet
+	var maxBalance float64
+	
+	for _, wallet := range wallets {
+		balance, err := client.GetBalance(wallet.Address)
+		if err == nil {
+			s.walletDB.UpdateWalletBalance(wallet.ID, balance)
+			if balance >= minBalanceForTx {
+				if walletWithBalance == nil || balance > maxBalance {
+					walletWithBalance = wallet
+					maxBalance = balance
+				}
+			}
+		}
+	}
+	
+	// If no wallet has sufficient balance, block the operation
+	if walletWithBalance == nil {
+		// Get the highest balance to show in error message
+		var highestBalance float64
+		for _, wallet := range wallets {
+			balance, _ := client.GetBalance(wallet.Address)
+			if balance > highestBalance {
+				highestBalance = balance
+			}
+		}
+		
+		errorMsg := map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Insufficient CHIPS balance. Your wallet balance: %.8f CHIPS. Minimum required: %.8f CHIPS. Please load CHIPS to your wallet before signing.", highestBalance, minBalanceForTx),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired) // 402 Payment Required
+		json.NewEncoder(w).Encode(errorMsg)
+		return
+	}
+	
+	// Add wallet address to request (for reference - Verus RPC uses wallet funds automatically)
+	reqBody["wallet_address"] = walletWithBalance.Address
+	log.Printf("[INFO] User %s signing with wallet %s (balance: %.8f CHIPS)", claims.UserID, walletWithBalance.Address, maxBalance)
 
 	// Forward request to HSM server
 	jsonData, _ := json.Marshal(reqBody)
