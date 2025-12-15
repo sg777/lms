@@ -5,7 +5,7 @@
 The HSM server needs to be started with the Raft cluster endpoints. Use the actual IPs of your Raft nodes:
 
 ```bash
-# On node 159.69.23.29 (or any node)
+# On node 159.69.23.31 (or any node)
 ./hsm-server -port 9090 -raft-endpoints "http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080"
 ```
 
@@ -15,16 +15,16 @@ Always specify the HSM server IP (not localhost) when using the client:
 
 ```bash
 # Sign a message
-./hsm-client sign -key-id my_key -msg "hello" -server http://159.69.23.29:9090
+./hsm-client sign -key-id my_key -msg "hello" -server http://159.69.23.31:9090
 
 # Query Raft cluster
 ./hsm-client query -key-id my_key -raft http://159.69.23.29:8080
 
 # Generate key
-./hsm-client generate -key-id my_key -server http://159.69.23.29:9090
+./hsm-client generate -key-id my_key -server http://159.69.23.31:9090
 
 # List keys
-./hsm-client list -server http://159.69.23.29:9090
+./hsm-client list -server http://159.69.23.31:9090
 ```
 
 ## Important Notes
