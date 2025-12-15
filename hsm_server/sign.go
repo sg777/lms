@@ -96,9 +96,11 @@ func (s *HSMServer) queryRaftByPubkeyHash(pubkeyHash string) (uint64, string, bo
 }
 
 // commitIndexToRaft commits an index to Raft cluster with EC signature and hash chain
+// Also commits to Verus blockchain if enabled (for testing/fallback)
 func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash string, lmsPublicKey []byte) error {
 	// Compute pubkey_hash from LMS public key (Phase B: primary identifier)
 	pubkeyHash := fsm.ComputePubkeyHash(lmsPublicKey)
+	pubkeyHashHex := fmt.Sprintf("%x", pubkeyHash)
 	
 	// Create data to sign: key_id:index (signature format unchanged for compatibility)
 	data := fmt.Sprintf("%s:%d", keyID, index)
@@ -158,6 +160,7 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash s
 	}
 	
 	var lastErr error
+	var raftCommitted bool
 	for _, endpoint := range s.raftEndpoints {
 		url := fmt.Sprintf("%s/commit_index", endpoint)
 		
@@ -194,10 +197,36 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash s
 			continue
 		}
 		
-		return nil // Success
+		raftCommitted = true
+		break // Success
 	}
 	
-	return fmt.Errorf("all endpoints failed: %v", lastErr)
+	// If Raft commit failed, still try blockchain (for testing/fallback)
+	blockchainErr := error(nil)
+	if s.blockchainEnabled && s.blockchainClient != nil && s.blockchainIdentity != "" {
+		// Always commit to blockchain (for testing: dual commit)
+		_, _, blockchainErr = s.blockchainClient.CommitLMSIndexWithPubkeyHash(
+			s.blockchainIdentity,
+			pubkeyHashHex,
+			fmt.Sprintf("%d", index),
+		)
+		if blockchainErr != nil {
+			log.Printf("[WARNING] Failed to commit index %d to blockchain: %v", index, blockchainErr)
+		} else {
+			log.Printf("[INFO] Committed index %d to blockchain (pubkey_hash=%s)", index, pubkeyHashHex)
+		}
+	}
+	
+	// Return error only if both Raft and blockchain failed (if blockchain is enabled)
+	if !raftCommitted {
+		if blockchainErr != nil && s.blockchainEnabled {
+			return fmt.Errorf("all endpoints failed AND blockchain commit failed: raft=%v, blockchain=%v", lastErr, blockchainErr)
+		}
+		return fmt.Errorf("all endpoints failed: %v", lastErr)
+	}
+	
+	// Raft committed successfully (blockchain also committed if enabled)
+	return nil
 }
 
 // handleSign handles sign requests

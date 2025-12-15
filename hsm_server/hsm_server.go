@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/verifiable-state-chains/lms/blockchain"
 	"github.com/verifiable-state-chains/lms/fsm"
 	"github.com/verifiable-state-chains/lms/lms_wrapper"
 )
@@ -43,10 +44,25 @@ type HSMServer struct {
 	defaultLevels int
 	defaultLmType []int
 	defaultOtsType []int
+	
+	// Blockchain configuration (Verus/CHIPS)
+	blockchainEnabled bool                    // Enable blockchain commits
+	blockchainClient  *blockchain.VerusClient // Verus RPC client (nil if disabled)
+	blockchainIdentity string                 // Verus identity name (e.g., "sg777z.chips.vrsc@")
+}
+
+// BlockchainConfig holds blockchain configuration for HSM server
+type BlockchainConfig struct {
+	Enabled      bool   // Enable blockchain commits
+	RPCURL       string // Verus RPC URL (e.g., "http://127.0.0.1:22778")
+	RPCUser      string // RPC username
+	RPCPassword  string // RPC password
+	IdentityName string // Verus identity name (e.g., "sg777z.chips.vrsc@")
 }
 
 // NewHSMServer creates a new HSM server
-func NewHSMServer(port int, raftEndpoints []string) (*HSMServer, error) {
+// blockchainConfig can be nil to disable blockchain commits
+func NewHSMServer(port int, raftEndpoints []string, blockchainConfig *BlockchainConfig) (*HSMServer, error) {
 	// Load attestation key pair (must be generated with OpenSSL)
 	privKey, pubKey, err := LoadAttestationKeyPair()
 	if err != nil {
@@ -71,6 +87,21 @@ func NewHSMServer(port int, raftEndpoints []string) (*HSMServer, error) {
 		keyMap[key.KeyID] = key
 	}
 
+	// Setup blockchain client if enabled
+	var blockchainClient *blockchain.VerusClient
+	blockchainEnabled := false
+	blockchainIdentity := ""
+	if blockchainConfig != nil && blockchainConfig.Enabled {
+		blockchainClient = blockchain.NewVerusClient(
+			blockchainConfig.RPCURL,
+			blockchainConfig.RPCUser,
+			blockchainConfig.RPCPassword,
+		)
+		blockchainEnabled = true
+		blockchainIdentity = blockchainConfig.IdentityName
+		log.Printf("Blockchain commits enabled: identity=%s, rpc=%s", blockchainIdentity, blockchainConfig.RPCURL)
+	}
+
 	return &HSMServer{
 		keys:               keyMap,
 		db:                 db,
@@ -82,6 +113,10 @@ func NewHSMServer(port int, raftEndpoints []string) (*HSMServer, error) {
 		defaultLevels: 1,
 		defaultLmType: []int{lms_wrapper.LMS_SHA256_M32_H5},
 		defaultOtsType: []int{lms_wrapper.LMOTS_SHA256_N32_W1},
+		// Blockchain configuration
+		blockchainEnabled: blockchainEnabled,
+		blockchainClient:  blockchainClient,
+		blockchainIdentity: blockchainIdentity,
 	}, nil
 }
 
@@ -359,6 +394,11 @@ func (s *HSMServer) Start() error {
 	log.Printf("  POST   /delete_key     - Delete a specific key")
 	log.Printf("Raft endpoints: %v", s.raftEndpoints)
 	log.Printf("Database: %s", dbFileName)
+	if s.blockchainEnabled {
+		log.Printf("Blockchain commits: ENABLED (identity=%s)", s.blockchainIdentity)
+	} else {
+		log.Printf("Blockchain commits: DISABLED")
+	}
 	
 	return http.ListenAndServe(addr, mux)
 }
