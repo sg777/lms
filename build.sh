@@ -13,7 +13,16 @@ if [ -f .gitmodules ]; then
     if git submodule update --init --recursive; then
         echo "   ✅ Submodules initialized successfully"
     else
-        echo "   ⚠️  Warning: Submodule update failed, attempting to continue..."
+        echo "   ❌ ERROR: Submodule update failed!"
+        echo "   This is required for building hsm-server and hsm-client"
+        echo "   Please run: git submodule update --init --recursive"
+        exit 1
+    fi
+    # Verify submodule is populated
+    if [ ! -f native/hash-sigs/hss.h ]; then
+        echo "   ❌ ERROR: Submodule appears empty (hss.h not found)"
+        echo "   Please run: git submodule update --init --recursive"
+        exit 1
     fi
 fi
 
