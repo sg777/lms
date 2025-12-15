@@ -125,6 +125,7 @@ function updateAuthUI() {
     const userInfo = document.getElementById('userInfo');
     const usernameDisplay = document.getElementById('usernameDisplay');
     const myKeysTab = document.getElementById('myKeysTab');
+    const walletTab = document.getElementById('walletTab');
     
     if (authToken && currentUser) {
         loginSection.style.display = 'none';
@@ -133,11 +134,17 @@ function updateAuthUI() {
         if (myKeysTab) {
             myKeysTab.style.display = 'inline-block';
         }
+        if (walletTab) {
+            walletTab.style.display = 'inline-block';
+        }
     } else {
         loginSection.style.display = 'block';
         userInfo.style.display = 'none';
         if (myKeysTab) {
             myKeysTab.style.display = 'none';
+        }
+        if (walletTab) {
+            walletTab.style.display = 'none';
         }
         // Clear my keys list
         const myKeysList = document.getElementById('myKeysList');
