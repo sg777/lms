@@ -81,17 +81,23 @@ func (s *ExplorerServer) handleWalletCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Generate new CHIPS address
+	// Generate new CHIPS address with user label for easier identification
 	client := blockchain.NewVerusClient(
 		"http://127.0.0.1:22778",
 		"user1172159772",
 		"pass03465d081d1dfd2b74a2b5de27063f44f6843c64bcd63a6797915eb0ffa25707da",
 	)
 
-	address, err := client.GetNewAddress()
+	// Create address with user label (helps identify in Verus wallet)
+	addressLabel := fmt.Sprintf("user_%s", claims.UserID)
+	address, err := client.GetNewAddressWithLabel(addressLabel)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to generate CHIPS address: %v", err), http.StatusInternalServerError)
-		return
+		// Fallback to address without label if label fails
+		address, err = client.GetNewAddress()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to generate CHIPS address: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Create wallet record

@@ -412,8 +412,28 @@ func (v *VerusClient) GetLatestIndexForKey(identityName, keyID string) (string, 
 
 // GetNewAddress generates a new CHIPS address
 // Returns the address string
+// Note: This creates an address in the wallet controlled by the RPC node
+// All addresses created this way are in the same wallet file, but each address
+// has its own balance and can be tracked separately per user
 func (v *VerusClient) GetNewAddress() (string, error) {
 	result, err := v.callRPC("getnewaddress", []interface{}{})
+	if err != nil {
+		return "", err
+	}
+
+	var address string
+	if err := json.Unmarshal(result, &address); err != nil {
+		return "", fmt.Errorf("failed to unmarshal address: %v", err)
+	}
+
+	return address, nil
+}
+
+// GetNewAddressWithLabel generates a new CHIPS address with a label
+// label: Optional label for the address (e.g., username or user_id)
+// Returns the address string
+func (v *VerusClient) GetNewAddressWithLabel(label string) (string, error) {
+	result, err := v.callRPC("getnewaddress", []interface{}{label})
 	if err != nil {
 		return "", err
 	}
