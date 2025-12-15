@@ -490,10 +490,16 @@ func (v *VerusClient) GetBalance(address string) (float64, error) {
 
 // ListAddresses returns all addresses in the wallet
 // Returns a slice of address strings
+// Uses getaddressesbyaccount or getaddresses RPC method
 func (v *VerusClient) ListAddresses() ([]string, error) {
-	result, err := v.callRPC("listaddresses", []interface{}{})
+	// Try getaddresses first (newer Verus versions)
+	result, err := v.callRPC("getaddresses", []interface{}{})
 	if err != nil {
-		return nil, err
+		// Fallback to getaddressesbyaccount with empty account
+		result, err = v.callRPC("getaddressesbyaccount", []interface{}{""})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list addresses: %v", err)
+		}
 	}
 
 	var addresses []string
