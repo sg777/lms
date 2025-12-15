@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/verifiable-state-chains/lms/blockchain"
 )
