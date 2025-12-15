@@ -467,7 +467,11 @@ func (v *VerusClient) GetNewAddressWithLabel(label string) (string, error) {
 // address: CHIPS address to query
 // Returns balance as float64 (in CHIPS)
 func (v *VerusClient) GetBalance(address string) (float64, error) {
-	result, err := v.callRPC("getaddressbalance", []interface{}{address})
+	// getaddressbalance expects an object with "addresses" array
+	params := map[string]interface{}{
+		"addresses": []string{address},
+	}
+	result, err := v.callRPC("getaddressbalance", []interface{}{params})
 	if err != nil {
 		return 0, err
 	}
