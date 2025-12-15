@@ -54,11 +54,9 @@ function setupEventListeners() {
     document.getElementById('clearSearchBtn').addEventListener('click', clearSearch);
     document.getElementById('closeChainBtn').addEventListener('click', closeChain);
     
-    // Blockchain view
-    const viewBlockchainBtn = document.getElementById('viewBlockchainBtn');
+    // Blockchain view (removed View Blockchain button)
     const refreshBlockchainBtn = document.getElementById('refreshBlockchainBtn');
     const closeBlockchainBtn = document.getElementById('closeBlockchainBtn');
-    if (viewBlockchainBtn) viewBlockchainBtn.addEventListener('click', loadBlockchainCommits);
     if (refreshBlockchainBtn) refreshBlockchainBtn.addEventListener('click', loadBlockchainCommits);
     if (closeBlockchainBtn) closeBlockchainBtn.addEventListener('click', () => {
         document.getElementById('blockchainSection').style.display = 'none';
