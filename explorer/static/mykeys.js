@@ -30,20 +30,49 @@ async function loadMyKeys(silent = false) {
             container.innerHTML = '<div class="error">No keys found. Generate your first key to get started!</div>';
             updateSignKeySelect([]);
             updateVerifyKeySelect([]);
+            loadWalletBalance();
             return;
         }
         
+        // Load blockchain status for all keys (ignore non-JSON/HTML responses)
+        let blockchainStatus = {};
+        try {
+            const statusResponse = await authenticatedFetch(`${API_BASE}/api/my/key/blockchain/status`);
+            const ctype = statusResponse.headers.get('content-type') || '';
+            if (statusResponse.ok && ctype.includes('application/json')) {
+                const statusData = await statusResponse.json();
+                if (statusData.success && statusData.settings) {
+                    blockchainStatus = statusData.settings;
+                }
+            } else {
+                // Skip if backend returned HTML/SPAs or non-JSON
+                console.warn('Blockchain status response not JSON; status:', statusResponse.status);
+            }
+        } catch (err) {
+            console.error('Failed to load blockchain status:', err);
+        }
+        
         // Display keys table
-        let html = '<table><thead><tr><th>Key ID</th><th>Index</th><th>Parameters</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+        let html = '<table><thead><tr><th>Key ID</th><th>Index</th><th>Parameters</th><th>Created</th><th>Blockchain</th><th>Actions</th></tr></thead><tbody>';
         
         data.keys.forEach(key => {
             const keyIdEscaped = escapeHtml(key.key_id).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const setting = blockchainStatus[key.key_id] || { enabled: false };
+            const isEnabled = setting.enabled || false;
             html += `
                 <tr>
                     <td><strong>${escapeHtml(key.key_id)}</strong></td>
                     <td>${key.index}</td>
                     <td class="hash-cell">${escapeHtml(key.params || 'N/A')}</td>
                     <td>${key.created ? new Date(key.created).toLocaleDateString() : 'N/A'}</td>
+                    <td>
+                        <label class="toggle-switch">
+                            <input type="checkbox" ${isEnabled ? 'checked' : ''} 
+                                   onchange="toggleBlockchain('${keyIdEscaped}', this.checked)"
+                                   id="blockchain-toggle-${keyIdEscaped.replace(/[^a-zA-Z0-9]/g, '_')}">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </td>
                     <td>
                         <button class="auth-btn" onclick="exportKey('${keyIdEscaped}')" style="margin-right: 5px; padding: 5px 10px; font-size: 0.85em;">📥 Export</button>
                         <button class="auth-btn" onclick="deleteKey('${keyIdEscaped}')" style="margin-right: 5px; padding: 5px 10px; font-size: 0.85em; background: #f87171;">🗑️ Delete</button>
@@ -60,9 +89,141 @@ async function loadMyKeys(silent = false) {
         updateSignKeySelect(data.keys);
         updateVerifyKeySelect(data.keys);
         
+        // Load wallet balance
+        loadWalletBalance();
+        
     } catch (error) {
         if (!silent) {
             container.innerHTML = `<div class="error">Error loading keys: ${error.message}</div>`;
+        }
+    }
+}
+
+// Load and display wallet balance
+async function loadWalletBalance() {
+    const balanceDisplay = document.getElementById('walletBalanceDisplay');
+    if (!balanceDisplay) return;
+    
+    if (!authToken) {
+        balanceDisplay.textContent = '💳 Please login';
+        return;
+    }
+    
+    try {
+        const response = await authenticatedFetch(`${API_BASE}/api/my/wallet/total-balance`);
+        const data = await response.json().catch(() => ({}));
+        const balance = data.total_balance || 0;
+        if (response.ok && data.success) {
+            balanceDisplay.textContent = `💳 ${balance.toFixed(8)} CHIPS`;
+            if (balance < 0.0001) {
+                balanceDisplay.style.background = '#fee2e2';
+                balanceDisplay.style.color = '#991b1b';
+            } else {
+                balanceDisplay.style.background = '#e0f2fe';
+                balanceDisplay.style.color = '#0369a1';
+            }
+        } else {
+            // On any error, show 0 and the error message
+            balanceDisplay.textContent = `💳 0.00000000 CHIPS`;
+            balanceDisplay.style.background = '#fee2e2';
+            balanceDisplay.style.color = '#991b1b';
+            if (data.error) {
+                balanceDisplay.title = data.error;
+            } else {
+                balanceDisplay.title = `HTTP ${response.status}`;
+            }
+        }
+    } catch (error) {
+        balanceDisplay.textContent = '💳 0.00000000 CHIPS';
+        balanceDisplay.style.background = '#fee2e2';
+        balanceDisplay.style.color = '#991b1b';
+        balanceDisplay.title = error.message;
+        console.error('Failed to load wallet balance:', error);
+    }
+}
+
+// Toggle blockchain for a key
+async function toggleBlockchain(keyId, enable) {
+    if (!authToken) {
+        alert('Please login first');
+        return;
+    }
+    
+    const toggle = document.getElementById(`blockchain-toggle-${keyId.replace(/[^a-zA-Z0-9]/g, '_')}`);
+    if (toggle) {
+        toggle.disabled = true;
+    }
+    
+    try {
+        // Pre-check balance to avoid backend HTML responses
+        let currentBalance = 0;
+        try {
+            const balResp = await authenticatedFetch(`${API_BASE}/api/my/wallet/total-balance`);
+            const balData = await balResp.json().catch(() => ({}));
+            if (balData && balData.total_balance !== undefined) {
+                currentBalance = balData.total_balance || 0;
+            }
+        } catch (e) {
+            // ignore, will rely on backend error
+        }
+        if (enable && currentBalance < 0.0001) {
+            alert('❌ Not enough balance to enable blockchain. Please fund your wallet first.');
+            if (toggle) {
+                toggle.checked = false;
+                toggle.disabled = false;
+            }
+            return;
+        }
+
+        const response = await authenticatedFetch(`${API_BASE}/api/my/key/blockchain/toggle`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                key_id: keyId,
+                enable: enable
+            })
+        });
+        
+        const rawText = await response.text();
+        let data = {};
+        try {
+            data = JSON.parse(rawText);
+        } catch (e) {
+            // Backend returned HTML or non-JSON
+            throw new Error(rawText.slice(0, 200));
+        }
+        
+        if (!response.ok || !data.success) {
+            const errMsg = data.error || `HTTP ${response.status}`;
+            throw new Error(errMsg);
+        }
+        
+        if (data.success) {
+            if (enable) {
+                alert(`✅ Blockchain enabled for ${keyId}!\n\n${data.message || ''}\n\nTransaction ID: ${data.txid || 'N/A'}`);
+            } else {
+                alert(`✅ Blockchain disabled for ${keyId}`);
+            }
+            // Reload keys to refresh status
+            await loadMyKeys();
+            // Reload wallet balance (might have changed due to fees)
+            await loadWalletBalance();
+        } else {
+            alert(`❌ Error: ${data.error || 'Failed to toggle blockchain'}`);
+            // Revert toggle
+            if (toggle) {
+                toggle.checked = !enable;
+                toggle.disabled = false;
+            }
+        }
+    } catch (error) {
+        alert(`❌ Error: ${error.message}\n\nIf your wallet balance is zero, fund it before enabling blockchain.`);
+        // Revert toggle
+        if (toggle) {
+            toggle.checked = !enable;
+            toggle.disabled = false;
         }
     }
 }
@@ -309,6 +470,9 @@ async function handleSignMessage() {
             
             // Reload keys to update index
             await loadMyKeys(true);
+            
+            // Reload wallet balance (might have changed due to fees)
+            await loadWalletBalance();
         } else {
             throw new Error(data.error || 'Failed to sign message');
         }
@@ -320,4 +484,3 @@ async function handleSignMessage() {
         btn.disabled = false;
     }
 }
-

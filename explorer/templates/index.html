@@ -76,6 +76,7 @@
                 <div class="section-header">
                     <h2>Recent Commits</h2>
                     <div>
+                        <button id="viewBlockchainBtn" class="refresh-btn" style="margin-right: 10px;">🔗 View Blockchain</button>
                         <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
                     </div>
                 </div>
@@ -120,7 +121,10 @@
             <div class="section">
                 <div class="section-header">
                     <h2>My LMS Keys</h2>
-                    <div style="display: flex; gap: 10px;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <div id="walletBalanceDisplay" style="padding: 5px 15px; background: #e0f2fe; border-radius: 6px; font-weight: bold; color: #0369a1;">
+                            💳 Loading balance...
+                        </div>
                         <button id="importKeyBtn" class="refresh-btn">📥 Import Key</button>
                         <button id="generateKeyBtn" class="refresh-btn">➕ Generate Key</button>
                     </div>

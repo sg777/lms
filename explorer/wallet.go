@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/verifiable-state-chains/lms/blockchain"
 )
 
 // handleWalletList lists all CHIPS wallets for the authenticated user
@@ -39,11 +37,7 @@ func (s *ExplorerServer) handleWalletList(w http.ResponseWriter, r *http.Request
 	}
 
 	// Update balances from blockchain
-	client := blockchain.NewVerusClient(
-		"http://127.0.0.1:22778",
-		"user1172159772",
-		"pass03465d081d1dfd2b74a2b5de27063f44f6843c64bcd63a6797915eb0ffa25707da",
-	)
+	client := newVerusClientFromEnv()
 
 	for _, wallet := range wallets {
 		balance, err := client.GetBalance(wallet.Address)
@@ -82,11 +76,7 @@ func (s *ExplorerServer) handleWalletCreate(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Generate new CHIPS address with user label for easier identification
-	client := blockchain.NewVerusClient(
-		"http://127.0.0.1:22778",
-		"user1172159772",
-		"pass03465d081d1dfd2b74a2b5de27063f44f6843c64bcd63a6797915eb0ffa25707da",
-	)
+	client := newVerusClientFromEnv()
 
 	// Create address with user label (helps identify in Verus wallet)
 	addressLabel := fmt.Sprintf("user_%s", claims.UserID)
@@ -132,53 +122,97 @@ func (s *ExplorerServer) handleWalletCreate(w http.ResponseWriter, r *http.Reque
 
 // handleWalletBalance gets the balance for a specific wallet address
 func (s *ExplorerServer) handleWalletBalance(w http.ResponseWriter, r *http.Request) {
+	// Safety against panics
+	defer func() {
+		if rec := recover(); rec != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   fmt.Sprintf("internal error: %v", rec),
+			})
+		}
+	}()
+
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
 		return
 	}
 
 	// Get user from token
 	tokenString := extractTokenFromHeader(r)
 	if tokenString == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Unauthorized",
+		})
 		return
 	}
 
 	claims, err := ValidateToken(tokenString)
 	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Unauthorized",
+		})
 		return
 	}
 
 	// Get address from query parameter
 	address := r.URL.Query().Get("address")
 	if address == "" {
-		http.Error(w, "address parameter is required", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "address parameter is required",
+		})
 		return
 	}
 
 	// Verify wallet belongs to user
 	wallet, err := s.walletDB.GetWalletByAddress(address)
 	if err != nil {
-		http.Error(w, "Wallet not found", http.StatusNotFound)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Wallet not found",
+		})
 		return
 	}
 
 	if wallet.UserID != claims.UserID {
-		http.Error(w, "Unauthorized: wallet does not belong to user", http.StatusForbidden)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Unauthorized: wallet does not belong to user",
+		})
 		return
 	}
 
 	// Get balance from blockchain
-	client := blockchain.NewVerusClient(
-		"http://127.0.0.1:22778",
-		"user1172159772",
-		"pass03465d081d1dfd2b74a2b5de27063f44f6843c64bcd63a6797915eb0ffa25707da",
-	)
+	client := newVerusClientFromEnv()
 
 	balance, err := client.GetBalance(address)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get balance: %v", err), http.StatusInternalServerError)
+		// Do not return 500; return JSON with success=false so UI can handle gracefully
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to get balance: %v", err),
+			"balance": 0.0,
+		})
 		return
 	}
 
@@ -215,11 +249,7 @@ func (s *ExplorerServer) GetUserWalletForFunding(userID string, minBalance float
 	}
 
 	// Get balances and find wallet with sufficient funds
-	client := blockchain.NewVerusClient(
-		"http://127.0.0.1:22778",
-		"user1172159772",
-		"pass03465d081d1dfd2b74a2b5de27063f44f6843c64bcd63a6797915eb0ffa25707da",
-	)
+	client := newVerusClientFromEnv()
 
 	for _, wallet := range wallets {
 		balance, err := client.GetBalance(wallet.Address)
@@ -237,11 +267,7 @@ func (s *ExplorerServer) GetUserWalletForFunding(userID string, minBalance float
 
 // CheckWalletBalance checks if a wallet has sufficient balance
 func (s *ExplorerServer) CheckWalletBalance(address string, minBalance float64) (bool, float64, error) {
-	client := blockchain.NewVerusClient(
-		"http://127.0.0.1:22778",
-		"user1172159772",
-		"pass03465d081d1dfd2b74a2b5de27063f44f6843c64bcd63a6797915eb0ffa25707da",
-	)
+	client := newVerusClientFromEnv()
 
 	balance, err := client.GetBalance(address)
 	if err != nil {
@@ -250,4 +276,3 @@ func (s *ExplorerServer) CheckWalletBalance(address string, minBalance float64) 
 
 	return balance >= minBalance, balance, nil
 }
-

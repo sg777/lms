@@ -1,12 +1,11 @@
 package explorer
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-
-	"github.com/verifiable-state-chains/lms/blockchain"
 )
 
 // handleBlockchain returns all blockchain commits from Verus identity
@@ -16,15 +15,9 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// For now, use default Verus client configuration
-	// In production, this should come from config
-	client := blockchain.NewVerusClient(
-		"http://127.0.0.1:22778",
-		"user1172159772",
-		"pass03465d081d1dfd2b74a2b5de27063f44f6843c64bcd63a6797915eb0ffa25707da",
-	)
-
-	identityName := "sg777z.chips.vrsc@"
+	// For now, use env-configured Verus client configuration
+	client := newVerusClientFromEnv()
+	identityName := verusIdentityName()
 
 	// Get all commits
 	commits, err := client.QueryAttestationCommits(identityName, "")
@@ -40,15 +33,15 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 			"key_id":       commit.KeyID,
 			"pubkey_hash":  commit.PubkeyHash,
 			"lms_index":    commit.LMSIndex,
-			"block_height":  commit.BlockHeight,
+			"block_height": commit.BlockHeight,
 			"txid":         commit.TxID,
 			"timestamp":    commit.Timestamp,
 			"key_id_label": "", // Will be populated from Raft
 		}
 
-		// Try to get key_id label from Raft by querying chain endpoint
-		// We'll try to query using the normalized key ID (KeyID) as if it were a pubkey_hash
-		// If that doesn't work, we'll try querying all chains and matching
+		// Try to get key_id label from Raft
+		// commit.KeyID is the normalized VDXF ID from Verus
+		// We need to match it by querying all keys from Raft and computing their normalized IDs
 		keyIDLabel := s.lookupKeyIDLabelFromRaft(commit.KeyID)
 		if keyIDLabel != "" {
 			enrichedCommit["key_id_label"] = keyIDLabel
@@ -65,60 +58,89 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":        true,
-		"identity":       identityName,
-		"block_height":   height,
-		"commit_count":   len(commits),
-		"commits":        enrichedCommits,
+		"success":      true,
+		"identity":     identityName,
+		"block_height": height,
+		"commit_count": len(commits),
+		"commits":      enrichedCommits,
 	})
 }
 
-// lookupKeyIDLabelFromRaft tries to find the key_id label for a normalized key ID by querying Raft
+// lookupKeyIDLabelFromRaft tries to find the key_id label for a normalized VDXF ID by querying Raft
+// Since Verus normalizes keys, we need to query all keys from Raft and match by computing their normalized IDs
 func (s *ExplorerServer) lookupKeyIDLabelFromRaft(normalizedKeyID string) string {
-	// Try querying Raft chain endpoint for each pubkey_hash we know about
-	// Since we don't have a direct mapping, we'll query all known keys from Raft
-	// and match by checking if their normalized ID matches
-	
-	// Query all keys from Raft
+	// First, try querying directly with the normalized ID (in case Raft stores it)
 	for _, endpoint := range s.raftEndpoints {
-		// Try to get chain by normalized key ID (might work if Raft stores it)
+		// Try querying by normalized ID as if it were a pubkey_hash
 		url := fmt.Sprintf("%s/pubkey_hash/%s/chain", endpoint, normalizedKeyID)
 		resp, err := http.Get(url)
-		if err != nil {
-			continue
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			var chainResp map[string]interface{}
-			if err := json.Unmarshal(body, &chainResp); err == nil {
-				if chain, ok := chainResp["chain"].([]interface{}); ok && len(chain) > 0 {
-					if firstEntry, ok := chain[0].(map[string]interface{}); ok {
-						if keyID, ok := firstEntry["key_id"].(string); ok && keyID != "" {
-							return keyID
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				var chainResp map[string]interface{}
+				if err := json.Unmarshal(body, &chainResp); err == nil {
+					if chain, ok := chainResp["chain"].([]interface{}); ok && len(chain) > 0 {
+						if firstEntry, ok := chain[0].(map[string]interface{}); ok {
+							if keyID, ok := firstEntry["key_id"].(string); ok && keyID != "" {
+								return keyID
+							}
 						}
 					}
 				}
 			}
 		}
+	}
 
-		// Also try querying by key_id (in case the normalized ID is stored as key_id)
-		url = fmt.Sprintf("%s/chain/%s", endpoint, normalizedKeyID)
-		resp, err = http.Get(url)
-		if err != nil {
-			continue
-		}
-		defer resp.Body.Close()
+	// If direct query failed, get all keys from Raft and match by computing normalized IDs
+	allKeys, err := s.getAllKeys()
+	if err != nil || len(allKeys) == 0 {
+		return ""
+	}
 
-		if resp.StatusCode == http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			var chainResp map[string]interface{}
-			if err := json.Unmarshal(body, &chainResp); err == nil {
-				if chain, ok := chainResp["chain"].([]interface{}); ok && len(chain) > 0 {
-					if firstEntry, ok := chain[0].(map[string]interface{}); ok {
-						if keyID, ok := firstEntry["key_id"].(string); ok && keyID != "" {
-							return keyID
+	// For each key, query its chain by pubkey_hash to match normalized ID
+	// We need to get the pubkey_hash for each key first
+	// Try querying by key_id to get the chain, then extract pubkey_hash
+	for _, keyID := range allKeys {
+		// First, try to get pubkey_hash by querying the key's chain
+		// The chain endpoint might have pubkey_hash, or we can query by pubkey_hash directly
+		// But we don't have the pubkey_hash yet, so let's try a different approach:
+		// Query the /pubkey_hash endpoint for all possible hashes? No, that's not feasible.
+
+		// Better approach: Query chain by key_id, get public_key, compute pubkey_hash
+		for _, endpoint := range s.raftEndpoints {
+			// Try querying chain by key_id to get public_key
+			url := fmt.Sprintf("%s/key/%s/chain", endpoint, keyID)
+			resp, err := http.Get(url)
+			if err != nil {
+				continue
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				var chainResp map[string]interface{}
+				if err := json.Unmarshal(body, &chainResp); err == nil {
+					if chain, ok := chainResp["chain"].([]interface{}); ok && len(chain) > 0 {
+						if firstEntry, ok := chain[0].(map[string]interface{}); ok {
+							// Try to get pubkey_hash directly from entry
+							var pubkeyHash string
+							if ph, ok := firstEntry["pubkey_hash"].(string); ok && ph != "" {
+								pubkeyHash = ph
+							} else if publicKey, ok := firstEntry["public_key"].(string); ok && publicKey != "" {
+								// Compute pubkey_hash from public_key (SHA-256)
+								hash := sha256.Sum256([]byte(publicKey))
+								pubkeyHash = fmt.Sprintf("%x", hash)
+							}
+
+							if pubkeyHash != "" {
+								// Compute normalized VDXF ID for this pubkey_hash
+								client := newVerusClientFromEnv()
+								computedNormalized, err := client.GetVDXFID(pubkeyHash)
+								if err == nil && computedNormalized == normalizedKeyID {
+									return keyID
+								}
+							}
 						}
 					}
 				}
@@ -128,4 +150,3 @@ func (s *ExplorerServer) lookupKeyIDLabelFromRaft(normalizedKeyID string) string
 
 	return ""
 }
-

@@ -368,8 +368,18 @@ func (v *VerusClient) QueryAttestationCommits(identityName, keyID string) ([]*At
 		for _, entry := range entries {
 			if entryMap, ok := entry.(map[string]interface{}); ok {
 				if lmsIndex, ok := entryMap[mapKey].(string); ok {
+					// checkKey is the normalized VDXF ID from Verus
+					// We need to try to reverse-normalize it, but since Verus normalizes keys,
+					// we'll store it as both KeyID (normalized) and try to use it as PubkeyHash
+					// The actual pubkey_hash might be in the original commit, but Verus stores normalized
+					// For now, we'll use checkKey as both - the lookup function will try to query Raft with it
+					// If it's a hex string (64 chars), it might be the original pubkey_hash
+					pubkeyHash := checkKey
+					// If checkKey looks like a VDXF ID (starts with 'i'), we can't reverse it
+					// But we can try to query Raft with it anyway - it might work if Raft stores normalized IDs
 					commits = append(commits, &AttestationCommit{
-						KeyID:       checkKey,
+						KeyID:       checkKey, // Normalized VDXF ID
+						PubkeyHash:  pubkeyHash, // Try using the same value - might be hex or normalized
 						LMSIndex:    lmsIndex,
 						BlockHeight: identity.BlockHeight,
 						TxID:        identity.TxID,
@@ -470,29 +480,33 @@ func (v *VerusClient) GetNewAddressWithLabel(label string) (string, error) {
 // address: CHIPS address to query
 // Returns balance as float64 (in CHIPS)
 func (v *VerusClient) GetBalance(address string) (float64, error) {
-	// getaddressbalance expects an object with "addresses" array
+	// First try getaddressbalance (requires addressindex)
 	params := map[string]interface{}{
 		"addresses": []string{address},
 	}
 	result, err := v.callRPC("getaddressbalance", []interface{}{params})
+	if err == nil {
+		var balanceObj map[string]interface{}
+		if err := json.Unmarshal(result, &balanceObj); err == nil {
+			if balance, ok := balanceObj["balance"].(float64); ok {
+				return balance / 100000000.0, nil // satoshis to CHIPS
+			}
+		}
+	}
+
+	// Fallback to getcurrencybalance (does not require addressindex)
+	result, err = v.callRPC("getcurrencybalance", []interface{}{address})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to get balance: %v", err)
 	}
-
-	// getaddressbalance returns an object with "balance" and "received" fields
-	var balanceObj map[string]interface{}
-	if err := json.Unmarshal(result, &balanceObj); err != nil {
-		return 0, fmt.Errorf("failed to unmarshal balance: %v", err)
+	var currency map[string]float64
+	if err := json.Unmarshal(result, &currency); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal currency balance: %v", err)
 	}
-
-	// Extract balance (in satoshis, need to convert to CHIPS)
-	balance, ok := balanceObj["balance"].(float64)
-	if !ok {
-		return 0, fmt.Errorf("invalid balance format")
+	if chips, ok := currency["CHIPS"]; ok {
+		return chips, nil
 	}
-
-	// Convert from satoshis to CHIPS (1 CHIPS = 100,000,000 satoshis)
-	return balance / 100000000.0, nil
+	return 0, fmt.Errorf("CHIPS balance not found in response")
 }
 
 // ListAddresses returns all addresses in the wallet

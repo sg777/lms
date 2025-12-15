@@ -19,10 +19,11 @@ import (
 
 // SignRequest is the request to sign a message
 	type SignRequest struct {
-	KeyID         string `json:"key_id"`
-	Message       string `json:"message"`
-	UserID        string `json:"user_id,omitempty"`        // User ID from JWT token (added by explorer proxy)
-	WalletAddress string `json:"wallet_address,omitempty"` // CHIPS wallet address for funding (set by explorer proxy)
+	KeyID            string `json:"key_id"`
+	Message          string `json:"message"`
+	UserID           string `json:"user_id,omitempty"`           // User ID from JWT token (added by explorer proxy)
+	WalletAddress    string `json:"wallet_address,omitempty"`    // CHIPS wallet address for funding (set by explorer proxy)
+	BlockchainEnabled bool  `json:"blockchain_enabled,omitempty"` // Whether to commit to blockchain for this key (per-key control)
 }
 
 // SignResponse is the response from signing
@@ -99,7 +100,8 @@ func (s *HSMServer) queryRaftByPubkeyHash(pubkeyHash string) (uint64, string, bo
 // commitIndexToRaft commits an index to Raft cluster with EC signature and hash chain
 // Also commits to Verus blockchain if enabled (for testing/fallback)
 // fundingAddress: Optional CHIPS address to use for blockchain transaction funding
-func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash string, lmsPublicKey []byte, fundingAddress string) error {
+// blockchainEnabled: Whether to commit to blockchain for this specific key (per-key control)
+func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash string, lmsPublicKey []byte, fundingAddress string, blockchainEnabled bool) error {
 	// Compute pubkey_hash from LMS public key (Phase B: primary identifier)
 	pubkeyHash := fsm.ComputePubkeyHash(lmsPublicKey)
 	pubkeyHashHex := fmt.Sprintf("%x", pubkeyHash)
@@ -205,11 +207,13 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash s
 	
 	// If Raft commit failed, still try blockchain (for testing/fallback)
 	blockchainErr := error(nil)
-	if s.blockchainEnabled && s.blockchainClient != nil && s.blockchainIdentity != "" {
-		// Always commit to blockchain (for testing: dual commit)
+	// Commit to blockchain only if:
+	// 1. Global blockchain is enabled (s.blockchainEnabled)
+	// 2. Per-key blockchain is enabled (blockchainEnabled parameter)
+	if s.blockchainEnabled && blockchainEnabled && s.blockchainClient != nil && s.blockchainIdentity != "" {
+		// Commit to blockchain (per-key control)
 		// Try to get wallet address from request (set by explorer proxy)
 		// If available, use it explicitly for funding
-		fundingAddress := "" // Will be extracted from request if available
 		
 		_, _, blockchainErr = s.blockchainClient.CommitLMSIndexWithPubkeyHash(
 			s.blockchainIdentity,
@@ -353,7 +357,7 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		// Step 3: Key not found, commit index 0 to Raft with genesis hash
 		indexToUse = 0
 		previousHash = fsm.GenesisHash
-		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash, lmsKey.PublicKey, req.WalletAddress); err != nil {
+		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash, lmsKey.PublicKey, req.WalletAddress, req.BlockchainEnabled); err != nil {
 			response := SignResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to commit index to Raft: %v", err),
@@ -383,7 +387,7 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 		previousHash = lastHash
 		
 		// Step 3: Commit the new index
-		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash, lmsKey.PublicKey, req.WalletAddress); err != nil {
+		if err := s.commitIndexToRaft(req.KeyID, indexToUse, previousHash, lmsKey.PublicKey, req.WalletAddress, req.BlockchainEnabled); err != nil {
 			response := SignResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to commit index to Raft: %v", err),

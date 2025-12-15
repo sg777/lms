@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/verifiable-state-chains/lms/blockchain"
 )
@@ -141,9 +142,21 @@ func main() {
 	fmt.Printf("  Normalized Key ID: %s\n", normalizedKeyID)
 	fmt.Println()
 
-	// Step 6: Wait a bit and check balance after
+	// Step 6: Wait for transaction confirmation and check balance after
 	stepNum++
-	fmt.Printf("Step %d: Getting balance AFTER transaction...\n", stepNum)
+	fmt.Printf("Step %d: Waiting for transaction confirmation...\n", stepNum)
+	fmt.Printf("  Transaction ID: %s\n", txID)
+	fmt.Println("  Waiting up to 30 seconds for confirmation...")
+	
+	// Wait for confirmation (check every 2 seconds, up to 30 seconds)
+	for i := 0; i < 15; i++ {
+		time.Sleep(2 * time.Second)
+		if i == 0 || i%3 == 0 {
+			fmt.Printf("  Checking... (%d/15)\n", i+1)
+		}
+	}
+	fmt.Println("  Checking balance after transaction...")
+	
 	balanceAfter, err := client.GetBalance(selectedAddr.Address)
 	if err != nil {
 		log.Fatalf("Failed to get balance after: %v", err)

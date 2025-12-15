@@ -54,7 +54,13 @@ function setupEventListeners() {
     document.getElementById('clearSearchBtn').addEventListener('click', clearSearch);
     document.getElementById('closeChainBtn').addEventListener('click', closeChain);
     
-    // Blockchain view (removed View Blockchain button)
+    // Blockchain view
+    const viewBlockchainBtn = document.getElementById('viewBlockchainBtn');
+    if (viewBlockchainBtn) {
+        viewBlockchainBtn.addEventListener('click', () => {
+            loadBlockchainCommits();
+        });
+    }
     const refreshBlockchainBtn = document.getElementById('refreshBlockchainBtn');
     const closeBlockchainBtn = document.getElementById('closeBlockchainBtn');
     if (refreshBlockchainBtn) refreshBlockchainBtn.addEventListener('click', loadBlockchainCommits);
@@ -325,17 +331,18 @@ async function handleSearch() {
 }
 
 async function viewChain(keyId) {
-    // Switch to explorer tab if we're in My Keys tab
-    const explorerTab = document.getElementById('explorerTab');
-    const myKeysTab = document.getElementById('myKeysTab');
-    
-    if (myKeysTab && myKeysTab.classList.contains('active')) {
-        // Switch to explorer tab
-        if (explorerTab) {
-            explorerTab.click();
-        }
+    // Always switch to explorer tab first
+    if (typeof switchTab === 'function') {
+        switchTab('explorer');
         // Wait for tab switch to complete
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 200));
+    } else {
+        // Fallback: click explorer tab button
+        const explorerTabBtn = document.querySelector('.tab-btn[data-tab="explorer"]');
+        if (explorerTabBtn) {
+            explorerTabBtn.click();
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
     }
     
     const chainSection = document.getElementById('chainSection');
@@ -352,7 +359,7 @@ async function viewChain(keyId) {
     chainView.innerHTML = '<div class="loading">Loading chain...</div>';
 
     // Scroll to chain section
-    chainSection.scrollIntoView({ behavior: 'smooth' });
+    chainSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     try {
         const response = await fetch(`${API_BASE}/api/chain/${encodeURIComponent(keyId)}`);

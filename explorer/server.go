@@ -16,6 +16,7 @@ type ExplorerServer struct {
 	client        *http.Client
 	authServer    *AuthServer
 	walletDB      *WalletDB // Wallet database
+	keyBlockchainDB *KeyBlockchainDB // Key blockchain settings database
 	
 	// Cache for recent commits
 	cacheMu          sync.RWMutex
@@ -87,6 +88,11 @@ func NewExplorerServer(port int, raftEndpoints []string, hsmEndpoint string) (*E
 		return nil, fmt.Errorf("failed to create wallet database: %v", err)
 	}
 
+	keyBlockchainDB, err := NewKeyBlockchainDB("explorer/key_blockchain.db")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create key blockchain database: %v", err)
+	}
+
 	return &ExplorerServer{
 		raftEndpoints: raftEndpoints,
 		hsmEndpoint:   hsmEndpoint,
@@ -94,9 +100,10 @@ func NewExplorerServer(port int, raftEndpoints []string, hsmEndpoint string) (*E
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		authServer: authServer,
-		walletDB:   walletDB,
-		cacheTTL:   5 * time.Second, // Cache for 5 seconds
+		authServer:      authServer,
+		walletDB:        walletDB,
+		keyBlockchainDB: keyBlockchainDB,
+		cacheTTL:        5 * time.Second, // Cache for 5 seconds
 	}, nil
 }
 
@@ -133,6 +140,11 @@ func (s *ExplorerServer) Start() error {
 	mux.HandleFunc("/api/my/wallet/list", s.handleWalletList)
 	mux.HandleFunc("/api/my/wallet/create", s.handleWalletCreate)
 	mux.HandleFunc("/api/my/wallet/balance", s.handleWalletBalance)
+	mux.HandleFunc("/api/my/wallet/total-balance", s.handleWalletTotalBalance)
+	
+	// Key blockchain endpoints
+	mux.HandleFunc("/api/my/key/blockchain/toggle", s.handleKeyBlockchainToggle)
+	mux.HandleFunc("/api/my/key/blockchain/status", s.handleKeyBlockchainStatus)
 	
 	// Static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./explorer/static"))))
