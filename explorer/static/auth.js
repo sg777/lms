@@ -176,16 +176,26 @@ function switchTab(tabName) {
         content.style.display = 'none';
     });
     
-    const targetTab = tabName === 'explorer' ? 'explorerTab' : 'myKeysTabContent';
+    let targetTab = 'explorerTab';
+    if (tabName === 'mykeys') {
+        targetTab = 'myKeysTabContent';
+    } else if (tabName === 'wallet') {
+        targetTab = 'walletTabContent';
+    }
+    
     const targetElement = document.getElementById(targetTab);
     if (targetElement) {
         targetElement.classList.add('active');
         targetElement.style.display = 'block';
     }
     
-    // Load data if switching to my keys
+    // Load data if switching to my keys or wallet
     if (tabName === 'mykeys' && authToken) {
         loadMyKeys();
+    } else if (tabName === 'wallet' && authToken) {
+        if (typeof loadWallets === 'function') {
+            loadWallets();
+        }
     }
 }
 

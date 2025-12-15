@@ -66,6 +66,7 @@
         <div class="tabs" id="mainTabs">
             <button class="tab-btn active" data-tab="explorer">Public Explorer</button>
             <button class="tab-btn" data-tab="mykeys" id="myKeysTab" style="display: none;">My Keys</button>
+            <button class="tab-btn" data-tab="wallet" id="walletTab" style="display: none;">💳 Wallet</button>
         </div>
 
         <!-- Public Explorer Tab -->
@@ -245,6 +246,22 @@
                 </form>
             </div>
         </div>
+
+        <!-- Wallet Tab (Authenticated) -->
+        <div class="tab-content" id="walletTabContent" style="display: none;">
+            <div class="section">
+                <div class="section-header">
+                    <h2>CHIPS Wallet</h2>
+                    <div>
+                        <button id="createWalletBtn" class="refresh-btn">➕ Create New Wallet</button>
+                        <button id="refreshWalletBtn" class="refresh-btn">🔄 Refresh Balances</button>
+                    </div>
+                </div>
+                <div id="walletList" class="table-container">
+                    <div class="loading">Loading wallets...</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>
@@ -252,6 +269,7 @@
     <script src="/static/mykeys.js"></script>
     <script src="/static/export_import.js"></script>
     <script src="/static/verify.js"></script>
+    <script src="/static/wallet.js"></script>
 </body>
 </html>
 

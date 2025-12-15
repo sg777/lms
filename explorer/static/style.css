@@ -278,6 +278,15 @@ tbody tr:last-child td {
     color: #5568d3;
     text-decoration: underline;
 }
+
+.balance.positive {
+    color: #10b981;
+    font-weight: 600;
+}
+
+.balance.zero {
+    color: #6b7280;
+}
     white-space: nowrap;
 }
 

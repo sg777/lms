@@ -410,6 +410,84 @@ func (v *VerusClient) GetLatestIndexForKey(identityName, keyID string) (string, 
 	return latest.LMSIndex, nil
 }
 
+// GetNewAddress generates a new CHIPS address
+// Returns the address string
+func (v *VerusClient) GetNewAddress() (string, error) {
+	result, err := v.callRPC("getnewaddress", []interface{}{})
+	if err != nil {
+		return "", err
+	}
+
+	var address string
+	if err := json.Unmarshal(result, &address); err != nil {
+		return "", fmt.Errorf("failed to unmarshal address: %v", err)
+	}
+
+	return address, nil
+}
+
+// GetBalance returns the balance for a specific address
+// address: CHIPS address to query
+// Returns balance as float64 (in CHIPS)
+func (v *VerusClient) GetBalance(address string) (float64, error) {
+	result, err := v.callRPC("getaddressbalance", []interface{}{address})
+	if err != nil {
+		return 0, err
+	}
+
+	// getaddressbalance returns an object with "balance" and "received" fields
+	var balanceObj map[string]interface{}
+	if err := json.Unmarshal(result, &balanceObj); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal balance: %v", err)
+	}
+
+	// Extract balance (in satoshis, need to convert to CHIPS)
+	balance, ok := balanceObj["balance"].(float64)
+	if !ok {
+		return 0, fmt.Errorf("invalid balance format")
+	}
+
+	// Convert from satoshis to CHIPS (1 CHIPS = 100,000,000 satoshis)
+	return balance / 100000000.0, nil
+}
+
+// ListAddresses returns all addresses in the wallet
+// Returns a slice of address strings
+func (v *VerusClient) ListAddresses() ([]string, error) {
+	result, err := v.callRPC("listaddresses", []interface{}{})
+	if err != nil {
+		return nil, err
+	}
+
+	var addresses []string
+	if err := json.Unmarshal(result, &addresses); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal addresses: %v", err)
+	}
+
+	return addresses, nil
+}
+
+// ValidateAddress validates a CHIPS address
+// Returns true if valid, false otherwise
+func (v *VerusClient) ValidateAddress(address string) (bool, error) {
+	result, err := v.callRPC("validateaddress", []interface{}{address})
+	if err != nil {
+		return false, err
+	}
+
+	var addrInfo map[string]interface{}
+	if err := json.Unmarshal(result, &addrInfo); err != nil {
+		return false, fmt.Errorf("failed to unmarshal address info: %v", err)
+	}
+
+	isValid, ok := addrInfo["isvalid"].(bool)
+	if !ok {
+		return false, fmt.Errorf("invalid address info format")
+	}
+
+	return isValid, nil
+}
+
 // GetAllKeyIDs returns all key_ids that have committed indices
 func (v *VerusClient) GetAllKeyIDs(identityName string) ([]string, error) {
 	identity, err := v.GetIdentity(identityName)

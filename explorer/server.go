@@ -15,6 +15,7 @@ type ExplorerServer struct {
 	port          int
 	client        *http.Client
 	authServer    *AuthServer
+	walletDB      *WalletDB // Wallet database
 	
 	// Cache for recent commits
 	cacheMu          sync.RWMutex
@@ -81,6 +82,11 @@ func NewExplorerServer(port int, raftEndpoints []string, hsmEndpoint string) (*E
 		return nil, fmt.Errorf("failed to create auth server: %v", err)
 	}
 
+	walletDB, err := NewWalletDB("explorer/wallets.db")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wallet database: %v", err)
+	}
+
 	return &ExplorerServer{
 		raftEndpoints: raftEndpoints,
 		hsmEndpoint:   hsmEndpoint,
@@ -89,6 +95,7 @@ func NewExplorerServer(port int, raftEndpoints []string, hsmEndpoint string) (*E
 			Timeout: 10 * time.Second,
 		},
 		authServer: authServer,
+		walletDB:   walletDB,
 		cacheTTL:   5 * time.Second, // Cache for 5 seconds
 	}, nil
 }
