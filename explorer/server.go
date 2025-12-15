@@ -95,10 +95,9 @@ func NewExplorerServer(port int, raftEndpoints []string, hsmEndpoint string) (*E
 
 // Start starts the explorer server
 func (s *ExplorerServer) Start() error {
-	// Validate HSM server is reachable at startup
-	if err := s.validateHSMServer(); err != nil {
-		return fmt.Errorf("HSM server validation failed: %v (explorer requires HSM server to be running)", err)
-	}
+	// Note: HSM server validation is done per-request, not at startup
+	// This allows explorer to start for browsing/login even if HSM server is down
+	// HSM operations (generate key, sign, etc.) will fail gracefully with error messages
 	
 	mux := http.NewServeMux()
 	
@@ -132,27 +131,9 @@ func (s *ExplorerServer) Start() error {
 	log.Printf("Explorer server starting on http://localhost%s", addr)
 	log.Printf("HSM server endpoint: %s", s.hsmEndpoint)
 	log.Printf("Connecting to Raft endpoints: %v", s.raftEndpoints)
+	log.Printf("Note: Explorer can start without HSM server. HSM operations will fail if server is unavailable.")
 	
 	return http.ListenAndServe(addr, mux)
-}
-
-// validateHSMServer checks if HSM server is reachable
-func (s *ExplorerServer) validateHSMServer() error {
-	url := fmt.Sprintf("%s/list_keys", s.hsmEndpoint)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create validation request: %v", err)
-	}
-	
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("cannot connect to HSM server at %s: %v (is HSM server running?)", s.hsmEndpoint, err)
-	}
-	defer resp.Body.Close()
-	
-	// Any response (even error) means server is reachable
-	log.Printf("✅ HSM server is reachable at %s", s.hsmEndpoint)
-	return nil
 }
 
 // handleIndex serves the main HTML page
