@@ -22,6 +22,12 @@ func main() {
 
 	client := blockchain.NewVerusClient(*rpcURL, *rpcUser, *rpcPassword)
 
+	// Define AddressBalance type
+	type AddressBalance struct {
+		Address string
+		Balance float64
+	}
+
 	fmt.Println("=== Testing Explicit Funding Address ===")
 	fmt.Println()
 
@@ -58,10 +64,6 @@ func main() {
 
 		// Step 2: Check balances for each address
 		fmt.Println("Step 2: Checking balances for each address...")
-		type AddressBalance struct {
-			Address string
-			Balance float64
-		}
 		var addressesWithBalance []AddressBalance
 
 		for _, addr := range addresses {
