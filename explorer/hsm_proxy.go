@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+
+	"github.com/verifiable-state-chains/lms/blockchain"
 )
 
 // handleMyKeys lists keys for the authenticated user
