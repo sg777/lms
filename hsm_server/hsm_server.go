@@ -16,17 +16,17 @@ import (
 
 // LMSKey represents an LMS key managed by the HSM server
 type LMSKey struct {
-	KeyID      string    `json:"key_id"`
-	UserID     string    `json:"user_id,omitempty"` // Owner of the key (optional for backward compatibility)
-	Index      uint64    `json:"index"`
-	Created    string    `json:"created"`
-	PrivateKey []byte    `json:"private_key,omitempty"` // Serialized LMS private key (not sent to clients)
-	PublicKey  []byte    `json:"public_key,omitempty"`  // Serialized LMS public key
-	Params     string    `json:"params,omitempty"`      // LMS parameters description (e.g., "LMS: h=5, w=1 (max 32 signatures)")
-	
+	KeyID      string `json:"key_id"`
+	UserID     string `json:"user_id,omitempty"` // Owner of the key (optional for backward compatibility)
+	Index      uint64 `json:"index"`
+	Created    string `json:"created"`
+	PrivateKey []byte `json:"private_key,omitempty"` // Serialized LMS private key (not sent to clients)
+	PublicKey  []byte `json:"public_key,omitempty"`  // Serialized LMS public key
+	Params     string `json:"params,omitempty"`      // LMS parameters description (e.g., "LMS: h=5, w=1 (max 32 signatures)")
+
 	// LMS parameters needed for loading working key (stored in DB but not sent to clients)
-	Levels  int   `json:"levels"`  // Number of levels
-	LmType  []int `json:"lm_type"` // LMS parameter set array
+	Levels  int   `json:"levels"`   // Number of levels
+	LmType  []int `json:"lm_type"`  // LMS parameter set array
 	OtsType []int `json:"ots_type"` // OTS parameter set array
 }
 
@@ -36,19 +36,19 @@ type HSMServer struct {
 	keys               map[string]*LMSKey // key_id -> LMSKey (in-memory cache)
 	db                 *KeyDB             // Persistent database
 	port               int
-	raftEndpoints      []string           // Raft cluster endpoints
-	attestationPrivKey *ecdsa.PrivateKey  // EC private key for signing
-	attestationPubKey  *ecdsa.PublicKey   // EC public key
-	
+	raftEndpoints      []string          // Raft cluster endpoints
+	attestationPrivKey *ecdsa.PrivateKey // EC private key for signing
+	attestationPubKey  *ecdsa.PublicKey  // EC public key
+
 	// Standard LMS parameters (h=5, w=1)
-	defaultLevels int
-	defaultLmType []int
+	defaultLevels  int
+	defaultLmType  []int
 	defaultOtsType []int
-	
+
 	// Blockchain configuration (Verus/CHIPS)
-	blockchainEnabled bool                    // Enable blockchain commits
-	blockchainClient  *blockchain.VerusClient // Verus RPC client (nil if disabled)
-	blockchainIdentity string                 // Verus identity name (e.g., "sg777z.chips.vrsc@")
+	blockchainEnabled  bool                    // Enable blockchain commits
+	blockchainClient   *blockchain.VerusClient // Verus RPC client (nil if disabled)
+	blockchainIdentity string                  // Verus identity name (e.g., "sg777z.chips.vrsc@")
 }
 
 // BlockchainConfig holds blockchain configuration for HSM server
@@ -110,12 +110,12 @@ func NewHSMServer(port int, raftEndpoints []string, blockchainConfig *Blockchain
 		attestationPrivKey: privKey,
 		attestationPubKey:  pubKey,
 		// Standard parameters: h=5, w=1
-		defaultLevels: 1,
-		defaultLmType: []int{lms_wrapper.LMS_SHA256_M32_H5},
+		defaultLevels:  1,
+		defaultLmType:  []int{lms_wrapper.LMS_SHA256_M32_H5},
 		defaultOtsType: []int{lms_wrapper.LMOTS_SHA256_N32_W1},
 		// Blockchain configuration
-		blockchainEnabled: blockchainEnabled,
-		blockchainClient:  blockchainClient,
+		blockchainEnabled:  blockchainEnabled,
+		blockchainClient:   blockchainClient,
 		blockchainIdentity: blockchainIdentity,
 	}, nil
 }
@@ -206,8 +206,24 @@ func (s *HSMServer) generateKey(keyID string, userID string) (*LMSKey, error) {
 
 	// Store in memory cache
 	s.keys[keyID] = key
-	log.Printf("Successfully generated and stored LMS key: %s (pubkey: %d bytes, privkey: %d bytes)", 
+	log.Printf("Successfully generated and stored LMS key: %s (pubkey: %d bytes, privkey: %d bytes)",
 		keyID, len(pubKey), len(privKey))
+
+	// Commit index 0 with record_type="create" to Raft (and blockchain if enabled for this key)
+	// This creates the initial entry for the key
+	// Note: blockchain is not enabled at key creation, so this will only go to Raft
+	// Check if blockchain is enabled for this key (it shouldn't be at creation, but check anyway)
+	blockchainEnabled := false // Keys are created without blockchain enabled
+
+	// Commit index 0 with "create" record type
+	if err := s.commitIndexToRaft(keyID, 0, fsm.GenesisHash, pubKey, "", blockchainEnabled, "create"); err != nil {
+		log.Printf("[WARNING] Failed to commit index 0 (create) for key %s: %v", keyID, err)
+		// Don't fail key generation if commit fails - key is still created
+		// User can retry or the commit will happen on first sign
+	} else {
+		log.Printf("[INFO] Successfully committed index 0 (create) for key %s", keyID)
+	}
+
 	return key, nil
 }
 
@@ -231,7 +247,7 @@ func (s *HSMServer) listKeys(userID string) []LMSKey {
 	for _, key := range keysToReturn {
 		// Compute pubkey_hash for this key
 		pubkeyHash := fsm.ComputePubkeyHash(key.PublicKey)
-		
+
 		// Query Raft for actual last used index
 		raftIndex, _, exists, err := s.queryRaftByPubkeyHash(pubkeyHash)
 		if err == nil && exists {
@@ -243,15 +259,15 @@ func (s *HSMServer) listKeys(userID string) []LMSKey {
 				s.mu.Unlock()
 			}
 		}
-		
+
 		// Create a copy without private key for client response
 		keyCopy := LMSKey{
-			KeyID:    key.KeyID,
-			UserID:   key.UserID,
-			Index:    key.Index,
-			Created:  key.Created,
+			KeyID:     key.KeyID,
+			UserID:    key.UserID,
+			Index:     key.Index,
+			Created:   key.Created,
 			PublicKey: key.PublicKey,
-			Params:   key.Params,
+			Params:    key.Params,
 			// PrivateKey is intentionally omitted
 		}
 		keys = append(keys, keyCopy)
@@ -371,7 +387,7 @@ func (s *HSMServer) handleDeleteAllKeys(w http.ResponseWriter, r *http.Request) 
 // Start starts the HSM server
 func (s *HSMServer) Start() error {
 	mux := http.NewServeMux()
-	
+
 	mux.HandleFunc("/generate_key", s.handleGenerateKey)
 	mux.HandleFunc("/list_keys", s.handleListKeys)
 	mux.HandleFunc("/sign", s.handleSign)
@@ -380,7 +396,7 @@ func (s *HSMServer) Start() error {
 	mux.HandleFunc("/export_key", s.handleExportKey)
 	mux.HandleFunc("/import_key", s.handleImportKey)
 	mux.HandleFunc("/delete_key", s.handleDeleteKey)
-	
+
 	addr := fmt.Sprintf(":%d", s.port)
 	log.Printf("HSM Server starting on %s", addr)
 	log.Printf("Endpoints:")
@@ -399,7 +415,7 @@ func (s *HSMServer) Start() error {
 	} else {
 		log.Printf("Blockchain commits: DISABLED")
 	}
-	
+
 	return http.ListenAndServe(addr, mux)
 }
 
@@ -410,4 +426,3 @@ func (s *HSMServer) Close() error {
 	}
 	return nil
 }
-

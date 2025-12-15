@@ -32,10 +32,10 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 	// Extract key_id and endpoint type from path: /key/<key_id>/index or /key/<key_id>/chain
 	path := strings.TrimPrefix(r.URL.Path, "/key/")
 	path = strings.Trim(path, "/") // Remove leading/trailing slashes
-	
+
 	var keyID string
 	var endpoint string
-	
+
 	// Check for /chain or /index suffix
 	if strings.HasSuffix(path, "/chain") {
 		keyID = strings.TrimSuffix(path, "/chain")
@@ -52,7 +52,7 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 		keyID = path
 		endpoint = "index"
 	}
-	
+
 	// Clean up keyID (remove trailing slashes)
 	keyID = strings.Trim(keyID, "/")
 
@@ -71,7 +71,7 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 	if endpoint == "chain" {
 		// Build chain from Raft log entries (works even for entries committed before keyEntries storage was added)
 		chainEntries, verification := s.buildChainFromRaftLog(keyID)
-		
+
 		if len(chainEntries) == 0 {
 			response := map[string]interface{}{
 				"success": true,
@@ -102,13 +102,13 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 	// Handle index endpoint (existing behavior)
 	// Get key index and hash from FSM
 	index, exists := s.fsm.GetKeyIndex(keyID)
-	
+
 	response := map[string]interface{}{
 		"success": true,
 		"key_id":  keyID,
 		"exists":  exists,
 	}
-	
+
 	if exists {
 		response["index"] = index
 		// Try to get hash if FSM supports it (for hash chain)
@@ -133,22 +133,24 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) buildChainFromRaftLog(keyID string) ([]map[string]interface{}, *ChainVerification) {
 	chainEntries := make([]map[string]interface{}, 0)
 	verification := &ChainVerification{
-		Valid:     true,
-		Error:     "",
+		Valid:      true,
+		Error:      "",
 		BreakIndex: -1,
 	}
-	
+
 	// First try to get from FSM's stored entries (if available)
-	if chainFSM, ok := s.fsm.(interface{ GetKeyChain(string) ([]*fsm.KeyIndexEntry, bool) }); ok {
+	if chainFSM, ok := s.fsm.(interface {
+		GetKeyChain(string) ([]*fsm.KeyIndexEntry, bool)
+	}); ok {
 		entries, exists := chainFSM.GetKeyChain(keyID)
 		if exists && len(entries) > 0 {
 			// Convert to response format and verify chain integrity
 			// Note: "hash" is the CURRENT hash of THIS entry (computed on all fields except hash itself)
 			// This hash becomes the "previous_hash" for the next entry in the chain
-			
+
 			// Verify chain integrity
 			verification = s.verifyChainIntegrity(entries)
-			
+
 			for i, entry := range entries {
 				entryMap := map[string]interface{}{
 					"key_id":        entry.KeyID,
@@ -159,7 +161,7 @@ func (s *APIServer) buildChainFromRaftLog(keyID string) ([]map[string]interface{
 					"signature":     entry.Signature,
 					"public_key":    entry.PublicKey,
 				}
-				
+
 				// Add verification status for this entry
 				if i == verification.BreakIndex {
 					entryMap["chain_broken"] = true
@@ -183,17 +185,17 @@ func (s *APIServer) buildChainFromRaftLog(keyID string) ([]map[string]interface{
 						entryMap["chain_error"] = fmt.Sprintf("first entry should have genesis hash, got %s", entry.PreviousHash)
 					}
 				}
-				
+
 				chainEntries = append(chainEntries, entryMap)
 			}
 			return chainEntries, verification
 		}
 	}
-	
+
 	// Fallback: Since entries might have been committed before keyEntries storage was added,
 	// and Raft replays logs on startup (calling Apply), they should be in keyEntries now.
 	// If not found, return empty (entries don't exist or weren't KeyIndexEntry types)
-	
+
 	return chainEntries, verification
 }
 
@@ -210,13 +212,13 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 		Valid:      true,
 		BreakIndex: -1,
 	}
-	
+
 	if len(entries) == 0 {
 		verification.Valid = false
 		verification.Error = "chain is empty"
 		return verification
 	}
-	
+
 	// Verify first entry uses genesis hash
 	if entries[0].PreviousHash != fsm.GenesisHash {
 		verification.Valid = false
@@ -224,7 +226,7 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 		verification.BreakIndex = 0
 		return verification
 	}
-	
+
 	// Verify each entry's hash computation
 	for i, entry := range entries {
 		computedHash, err := entry.ComputeHash()
@@ -234,7 +236,7 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 			verification.BreakIndex = i
 			return verification
 		}
-		
+
 		if entry.Hash != computedHash {
 			verification.Valid = false
 			verification.Error = fmt.Sprintf("entry %d: hash mismatch: expected %s, got %s", i, computedHash, entry.Hash)
@@ -242,19 +244,19 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 			return verification
 		}
 	}
-	
+
 	// Verify chain links (each entry's previous_hash matches previous entry's hash)
 	for i := 1; i < len(entries); i++ {
 		prevEntry := entries[i-1]
 		currentEntry := entries[i]
-		
+
 		if currentEntry.PreviousHash != prevEntry.Hash {
 			verification.Valid = false
 			verification.Error = fmt.Sprintf("chain broken at entry %d: previous_hash %s does not match previous entry's hash %s", i, currentEntry.PreviousHash, prevEntry.Hash)
 			verification.BreakIndex = i
 			return verification
 		}
-		
+
 		// Verify index is monotonic
 		if currentEntry.Index <= prevEntry.Index {
 			verification.Valid = false
@@ -263,19 +265,20 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 			return verification
 		}
 	}
-	
+
 	return verification
 }
 
 // CommitIndexRequest is the request to commit an index for a key_id
 type CommitIndexRequest struct {
-	KeyID       string `json:"key_id"`
-	PubkeyHash  string `json:"pubkey_hash"`   // Phase B: primary identifier
-	Index       uint64 `json:"index"`
+	KeyID        string `json:"key_id"`
+	PubkeyHash   string `json:"pubkey_hash"` // Phase B: primary identifier
+	Index        uint64 `json:"index"`
 	PreviousHash string `json:"previous_hash"` // SHA-256 hash of previous entry (genesis: all 0's)
-	Hash        string `json:"hash"`           // SHA-256 hash of this entry
-	Signature   string `json:"signature"`      // Base64 encoded EC signature
-	PublicKey   string `json:"public_key"`     // Base64 encoded EC public key
+	Hash         string `json:"hash"`          // SHA-256 hash of this entry
+	Signature    string `json:"signature"`     // Base64 encoded EC signature
+	PublicKey    string `json:"public_key"`    // Base64 encoded EC public key
+	RecordType   string `json:"record_type"`   // Record type: "create", "sign", "sync", "delete"
 }
 
 // CommitIndexResponse is the response from committing an index
@@ -360,14 +363,21 @@ func (s *APIServer) handleCommitIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create KeyIndexEntry for validation
+	// Set default record_type if not provided (backward compatibility)
+	recordType := req.RecordType
+	if recordType == "" {
+		recordType = "sign" // Default to "sign" for backward compatibility
+	}
+
 	entry := fsm.KeyIndexEntry{
-		KeyID:       req.KeyID,
-		PubkeyHash:  req.PubkeyHash, // Phase B: primary identifier
-		Index:       req.Index,
+		KeyID:        req.KeyID,
+		PubkeyHash:   req.PubkeyHash, // Phase B: primary identifier
+		Index:        req.Index,
 		PreviousHash: req.PreviousHash,
-		Hash:        req.Hash,
-		Signature:   req.Signature,
-		PublicKey:   req.PublicKey,
+		Hash:         req.Hash,
+		Signature:    req.Signature,
+		PublicKey:    req.PublicKey,
+		RecordType:   recordType,
 	}
 
 	// Validate message format: should be "key_id:index" format
@@ -445,4 +455,3 @@ func (s *APIServer) handleCommitIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
-

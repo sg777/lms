@@ -117,18 +117,48 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 			return
 		}
 
-		// Get latest index from Raft for this key
-		latestIndex, pubkeyHash, err := s.getLatestIndexFromRaft(req.KeyID)
+		// CRITICAL: Check Raft availability before enabling blockchain
+		// Raft must be available to enable blockchain (for consistency)
+		latestIndex, pubkeyHash, hasData, err := s.getLatestIndexFromRaft(req.KeyID)
 		if err != nil {
+			// Raft is unavailable - cannot enable blockchain
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
-				"error":   fmt.Sprintf("Failed to get latest index from Raft: %v", err),
+				"error":   fmt.Sprintf("Cannot enable blockchain: Raft cluster is unavailable. Error: %v. Please ensure Raft cluster is running.", err),
 			})
 			return
 		}
 
-		// Commit current index to blockchain
+		// If Raft has no data (nothing signed yet), just enable the setting (no blockchain commit)
+		if !hasData {
+			// Store setting without committing to blockchain
+			setting := &KeyBlockchainSetting{
+				UserID:    userID,
+				KeyID:     req.KeyID,
+				Enabled:   true,
+				EnabledAt: time.Now().Format(time.RFC3339),
+			}
+
+			if err := s.keyBlockchainDB.SetSetting(setting); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"error":   fmt.Sprintf("Failed to save setting: %v", err),
+				})
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": true,
+				"enabled": true,
+				"message": "Blockchain enabled! No data in Raft yet - setting enabled. Future commits will go to both Raft and blockchain.",
+			})
+			return
+		}
+
+		// Raft has data: Commit current latest index to blockchain
 		identityName := verusIdentityName()
 		normalizedKeyID, txID, err := verusClient.CommitLMSIndexWithPubkeyHash(
 			identityName,
@@ -257,12 +287,17 @@ func (s *ExplorerServer) handleKeyBlockchainStatus(w http.ResponseWriter, r *htt
 }
 
 // getLatestIndexFromRaft gets the latest index and pubkey_hash for a key from Raft
-func (s *ExplorerServer) getLatestIndexFromRaft(keyID string) (uint64, string, error) {
+// Returns: (index, pubkeyHash, hasData, error)
+// hasData indicates if the key has any commits in Raft (false if key doesn't exist or has no data)
+func (s *ExplorerServer) getLatestIndexFromRaft(keyID string) (uint64, string, bool, error) {
+	var lastErr error
+	
 	// Query Raft for the key's chain
 	for _, endpoint := range s.raftEndpoints {
 		url := fmt.Sprintf("%s/key/%s/chain", endpoint, keyID)
 		resp, err := http.Get(url)
 		if err != nil {
+			lastErr = fmt.Errorf("failed to connect to %s: %v", endpoint, err)
 			continue
 		}
 		defer resp.Body.Close()
@@ -293,14 +328,35 @@ func (s *ExplorerServer) getLatestIndexFromRaft(keyID string) (uint64, string, e
 							}
 
 							if pubkeyHash != "" {
-								return index, pubkeyHash, nil
+								return index, pubkeyHash, true, nil // hasData = true
 							}
 						}
+					} else {
+						// Chain exists but is empty - key exists but no data
+						return 0, "", false, nil // hasData = false, but no error
+					}
+				} else {
+					// Success = false, but got response - might be key not found
+					errorMsg, _ := chainResp["error"].(string)
+					if errorMsg != "" {
+						// Key not found - no data
+						return 0, "", false, nil // hasData = false, but no error
 					}
 				}
 			}
+		} else if resp.StatusCode == http.StatusNotFound {
+			// Key not found - no data
+			return 0, "", false, nil // hasData = false, but no error
+		} else {
+			lastErr = fmt.Errorf("error from %s: status %d", endpoint, resp.StatusCode)
 		}
 	}
 
-	return 0, "", fmt.Errorf("failed to get index from Raft for key: %s", keyID)
+	// All endpoints failed - Raft is unavailable
+	if lastErr != nil {
+		return 0, "", false, lastErr
+	}
+	
+	// No endpoints responded - Raft unavailable
+	return 0, "", false, fmt.Errorf("all Raft endpoints unavailable for key: %s", keyID)
 }

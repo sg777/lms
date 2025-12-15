@@ -18,13 +18,14 @@ import (
 
 // KeyIndexEntry represents an index commitment for a pubkey_hash with hash chain
 type KeyIndexEntry struct {
-	KeyID       string `json:"key_id"`        // User-friendly label (for display, can change)
-	PubkeyHash  string `json:"pubkey_hash"`   // SHA-256 hash of LMS public key (primary identifier)
-	Index       uint64 `json:"index"`
+	KeyID        string `json:"key_id"`      // User-friendly label (for display, can change)
+	PubkeyHash   string `json:"pubkey_hash"` // SHA-256 hash of LMS public key (primary identifier)
+	Index        uint64 `json:"index"`
 	PreviousHash string `json:"previous_hash"` // SHA-256 hash of the previous entry (genesis: all 0's)
-	Hash        string `json:"hash"`           // SHA-256 hash of this entry (computed on all fields except hash)
-	Signature   string `json:"signature"`      // Base64 encoded EC signature
-	PublicKey   string `json:"public_key"`     // Base64 encoded EC public key (for verification)
+	Hash         string `json:"hash"`          // SHA-256 hash of this entry (computed on all fields except hash)
+	Signature    string `json:"signature"`     // Base64 encoded EC signature
+	PublicKey    string `json:"public_key"`    // Base64 encoded EC public key (for verification)
+	RecordType   string `json:"record_type"`   // Record type: "create", "sign", "sync", "delete"
 }
 
 // ComputeHash computes the SHA-256 hash of the entry
@@ -32,19 +33,21 @@ type KeyIndexEntry struct {
 func (e *KeyIndexEntry) ComputeHash() (string, error) {
 	// Create a temporary entry without the Hash field for computing hash
 	tempEntry := struct {
-		KeyID       string `json:"key_id"`
-		PubkeyHash  string `json:"pubkey_hash"`
-		Index       uint64 `json:"index"`
+		KeyID        string `json:"key_id"`
+		PubkeyHash   string `json:"pubkey_hash"`
+		Index        uint64 `json:"index"`
 		PreviousHash string `json:"previous_hash"`
-		Signature   string `json:"signature"`
-		PublicKey   string `json:"public_key"`
+		Signature    string `json:"signature"`
+		PublicKey    string `json:"public_key"`
+		RecordType   string `json:"record_type"`
 	}{
-		KeyID:       e.KeyID,
-		PubkeyHash:  e.PubkeyHash,
-		Index:       e.Index,
+		KeyID:        e.KeyID,
+		PubkeyHash:   e.PubkeyHash,
+		Index:        e.Index,
 		PreviousHash: e.PreviousHash,
-		Signature:   e.Signature,
-		PublicKey:   e.PublicKey,
+		Signature:    e.Signature,
+		PublicKey:    e.PublicKey,
+		RecordType:   e.RecordType,
 	}
 
 	jsonData, err := json.Marshal(tempEntry)
@@ -68,11 +71,11 @@ const GenesisHash = "00000000000000000000000000000000000000000000000000000000000
 // KeyIndexFSM stores pubkey_hash -> index mappings with EC signature verification and hash chain
 type KeyIndexFSM struct {
 	mu                sync.RWMutex
-	pubkeyHashIndices map[string]uint64              // pubkey_hash -> last used index
-	pubkeyHashHashes  map[string]string              // pubkey_hash -> hash of last entry (for hash chain validation)
-	pubkeyHashEntries map[string][]*KeyIndexEntry    // pubkey_hash -> all entries (for full chain retrieval)
-	keyIdToPubkeyHash map[string]string              // key_id -> pubkey_hash (for lookup convenience, latest mapping)
-	attestationPubKey *ecdsa.PublicKey              // Public key for verifying signatures
+	pubkeyHashIndices map[string]uint64           // pubkey_hash -> last used index
+	pubkeyHashHashes  map[string]string           // pubkey_hash -> hash of last entry (for hash chain validation)
+	pubkeyHashEntries map[string][]*KeyIndexEntry // pubkey_hash -> all entries (for full chain retrieval)
+	keyIdToPubkeyHash map[string]string           // key_id -> pubkey_hash (for lookup convenience, latest mapping)
+	attestationPubKey *ecdsa.PublicKey            // Public key for verifying signatures
 }
 
 // NewKeyIndexFSM creates a new key index FSM
@@ -182,19 +185,19 @@ func (f *KeyIndexFSM) Apply(l *raft.Log) interface{} {
 	// This stored hash will be used as previous_hash for the next entry - never recomputed
 	f.pubkeyHashIndices[pubkeyHash] = entry.Index
 	f.pubkeyHashHashes[pubkeyHash] = entry.Hash
-	
+
 	// Store key_id -> pubkey_hash mapping for lookup convenience (latest mapping)
 	f.keyIdToPubkeyHash[entry.KeyID] = pubkeyHash
-	
+
 	// Store the full entry for chain retrieval (using pubkey_hash)
 	entryCopy := &KeyIndexEntry{
-		KeyID:       entry.KeyID,
-		PubkeyHash:  entry.PubkeyHash,
-		Index:       entry.Index,
+		KeyID:        entry.KeyID,
+		PubkeyHash:   entry.PubkeyHash,
+		Index:        entry.Index,
 		PreviousHash: entry.PreviousHash,
-		Hash:        entry.Hash,
-		Signature:   entry.Signature,
-		PublicKey:   entry.PublicKey,
+		Hash:         entry.Hash,
+		Signature:    entry.Signature,
+		PublicKey:    entry.PublicKey,
 	}
 	f.pubkeyHashEntries[pubkeyHash] = append(f.pubkeyHashEntries[pubkeyHash], entryCopy)
 
@@ -264,14 +267,14 @@ func (f *KeyIndexFSM) verifySignature(entry *KeyIndexEntry) error {
 	// Create data to verify (key_id + index)
 	data := fmt.Sprintf("%s:%d", entry.KeyID, entry.Index)
 	hash := sha256.Sum256([]byte(data))
-	
+
 	// Debug: log the data being verified (remove in production if needed)
 	fmt.Printf("[DEBUG] Verifying signature for data: %s, hash: %x\n", data, hash)
 
 	// Decode signature (base64 encoded ASN.1)
 	fmt.Printf("[DEBUG] Received signature (base64): %s\n", entry.Signature)
 	fmt.Printf("[DEBUG] Received public key (base64): %s\n", entry.PublicKey)
-	
+
 	sigBytes, err := base64.StdEncoding.DecodeString(entry.Signature)
 	if err != nil {
 		return fmt.Errorf("failed to decode signature: %v", err)
@@ -434,13 +437,13 @@ func (f *KeyIndexFSM) GetChainByPubkeyHash(pubkeyHash string) ([]*KeyIndexEntry,
 	result := make([]*KeyIndexEntry, len(entries))
 	for i, entry := range entries {
 		result[i] = &KeyIndexEntry{
-			KeyID:       entry.KeyID,
-			PubkeyHash:  entry.PubkeyHash,
-			Index:       entry.Index,
+			KeyID:        entry.KeyID,
+			PubkeyHash:   entry.PubkeyHash,
+			Index:        entry.Index,
 			PreviousHash: entry.PreviousHash,
-			Hash:        entry.Hash,
-			Signature:   entry.Signature,
-			PublicKey:   entry.PublicKey,
+			Hash:         entry.Hash,
+			Signature:    entry.Signature,
+			PublicKey:    entry.PublicKey,
 		}
 	}
 
@@ -466,7 +469,7 @@ func (f *KeyIndexFSM) Snapshot() (raft.FSMSnapshot, error) {
 	indicesCopy := make(map[string]uint64)
 	hashesCopy := make(map[string]string)
 	keyIdMappingCopy := make(map[string]string)
-	
+
 	for k, v := range f.pubkeyHashIndices {
 		indicesCopy[k] = v
 	}
@@ -519,4 +522,3 @@ func (s *keyIndexSnapshot) Persist(sink raft.SnapshotSink) error {
 }
 
 func (s *keyIndexSnapshot) Release() {}
-
