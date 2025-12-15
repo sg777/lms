@@ -297,9 +297,25 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 	}
 
 	// Call updateidentity RPC with the identity object
-	result, err := v.callRPC("updateidentity", []interface{}{identityMap})
-	if err != nil {
-		return "", fmt.Errorf("failed to update identity: %v", err)
+	// Try to specify funding address if provided (some Verus implementations support this)
+	var result json.RawMessage
+	if fundingAddress != "" {
+		// Try with funding address as second parameter: updateidentity <identity> <fundingaddress>
+		result, err = v.callRPC("updateidentity", []interface{}{identityMap, fundingAddress})
+		if err != nil {
+			// If funding address parameter fails, try without it (fallback to auto-select)
+			// This allows compatibility with Verus versions that don't support explicit funding address
+			result, err = v.callRPC("updateidentity", []interface{}{identityMap})
+			if err != nil {
+				return "", fmt.Errorf("failed to update identity: %v", err)
+			}
+		}
+	} else {
+		// No funding address specified - wallet auto-selects from available addresses
+		result, err = v.callRPC("updateidentity", []interface{}{identityMap})
+		if err != nil {
+			return "", fmt.Errorf("failed to update identity: %v", err)
+		}
 	}
 
 	var txID string
