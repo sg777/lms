@@ -239,8 +239,9 @@ func (v *VerusClient) GetIdentity(identityName string) (*GetIdentityResponse, er
 // identityName: e.g., "sg777z.chips.vrsc@"
 // keyID: The LMS key ID
 // lmsIndex: The LMS index to commit
+// fundingAddress: Optional CHIPS address to use for funding (if empty, wallet auto-selects)
 // Returns the transaction ID
-func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex string) (string, error) {
+func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddress string) (string, error) {
 	// First, get current identity to preserve existing fields
 	current, err := v.GetIdentity(identityName)
 	if err != nil {
@@ -620,8 +621,9 @@ func (v *VerusClient) GetLMSIndexHistory(identityName, keyID string, heightStart
 
 // CommitLMSIndexWithPubkeyHash commits an LMS index using pubkey_hash as the key
 // This is the recommended way since pubkey_hash is deterministic and we can pre-compute the normalized ID
+// fundingAddress: Optional CHIPS address to use for funding (if empty, wallet auto-selects)
 // Returns: (normalizedKeyID, txID, error)
-func (v *VerusClient) CommitLMSIndexWithPubkeyHash(identityName, pubkeyHashHex, lmsIndex string) (string, string, error) {
+func (v *VerusClient) CommitLMSIndexWithPubkeyHash(identityName, pubkeyHashHex, lmsIndex, fundingAddress string) (string, string, error) {
 	// Pre-compute the normalized VDXF ID for the pubkey_hash
 	normalizedKeyID, err := v.GetVDXFID(pubkeyHashHex)
 	if err != nil {
@@ -629,7 +631,8 @@ func (v *VerusClient) CommitLMSIndexWithPubkeyHash(identityName, pubkeyHashHex, 
 	}
 
 	// Commit using the original pubkey_hash (Verus will normalize it internally)
-	txID, err := v.UpdateIdentity(identityName, pubkeyHashHex, lmsIndex)
+	// Pass funding address explicitly if provided
+	txID, err := v.UpdateIdentity(identityName, pubkeyHashHex, lmsIndex, fundingAddress)
 	if err != nil {
 		return "", "", err
 	}
