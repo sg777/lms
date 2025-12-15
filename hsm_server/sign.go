@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/verifiable-state-chains/lms/blockchain"
 	"github.com/verifiable-state-chains/lms/fsm"
 	"github.com/verifiable-state-chains/lms/lms_wrapper"
 )
@@ -382,32 +383,41 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 	if req.BlockchainEnabled && s.blockchainEnabled && s.blockchainClient != nil && s.blockchainIdentity != "" {
 		blockchainIndexStr, err := s.blockchainClient.GetLatestLMSIndexByPubkeyHash(s.blockchainIdentity, pubkeyHashHex)
 		if err != nil {
-			// Blockchain is unavailable but enabled - this is an error
-			response := SignResponse{
-				Success: false,
-				Error:   fmt.Sprintf("Blockchain is enabled but unavailable: %v. Please ensure CHIPS node is running.", err),
+			// Check if error is "no commits found" (valid state) vs actual RPC error
+			if err == blockchain.ErrNoCommits {
+				// No commits yet - this is valid, the first commit will happen during this sign
+				log.Printf("[INFO] Blockchain enabled but no commits found for key %s yet - will create first commit", req.KeyID)
+				blockchainAvailable = false // No blockchain data yet
+				blockchainIndex = 0
+			} else {
+				// Blockchain RPC error - truly unavailable
+				response := SignResponse{
+					Success: false,
+					Error:   fmt.Sprintf("Blockchain is enabled but unavailable: %v. Please ensure CHIPS node is running.", err),
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				json.NewEncoder(w).Encode(response)
+				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(response)
-			return
-		}
-
-		// Parse blockchain index
-		blockchainIndexUint, err := strconv.ParseUint(blockchainIndexStr, 10, 64)
-		if err != nil {
-			// Failed to parse blockchain index - treat as unavailable
-			response := SignResponse{
-				Success: false,
-				Error:   fmt.Sprintf("Failed to parse blockchain index: %v", err),
+		} else {
+			// Successfully got blockchain index
+			// Parse blockchain index
+			blockchainIndexUint, err := strconv.ParseUint(blockchainIndexStr, 10, 64)
+			if err != nil {
+				// Failed to parse blockchain index - treat as unavailable
+				response := SignResponse{
+					Success: false,
+					Error:   fmt.Sprintf("Failed to parse blockchain index: %v", err),
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(response)
+				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(response)
-			return
+			blockchainIndex = blockchainIndexUint
+			blockchainAvailable = true
 		}
-		blockchainIndex = blockchainIndexUint
-		blockchainAvailable = true
 	}
 
 	// Handle Raft unavailable scenarios

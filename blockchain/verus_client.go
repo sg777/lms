@@ -424,7 +424,11 @@ func (v *VerusClient) GetLatestIndexByKeyID(identityName string) (map[string]str
 	return result, nil
 }
 
+// ErrNoCommits is returned when no commits are found for a key (this is a valid state, not an error)
+var ErrNoCommits = fmt.Errorf("no commits found")
+
 // GetLatestIndexForKey returns the latest committed LMS index for a specific key_id
+// Returns ErrNoCommits if no commits exist (this is a valid state, not a true error)
 func (v *VerusClient) GetLatestIndexForKey(identityName, keyID string) (string, error) {
 	commits, err := v.QueryAttestationCommits(identityName, keyID)
 	if err != nil {
@@ -432,7 +436,7 @@ func (v *VerusClient) GetLatestIndexForKey(identityName, keyID string) (string, 
 	}
 
 	if len(commits) == 0 {
-		return "", fmt.Errorf("no commits found for key_id: %s", keyID)
+		return "", ErrNoCommits
 	}
 
 	// Find latest by block height
