@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -77,6 +78,11 @@ func (v *VerusClient) callRPC(method string, params []interface{}) (json.RawMess
 		return nil, fmt.Errorf("failed to marshal RPC request: %v", err)
 	}
 
+	// Log the exact request being sent (for debugging)
+	if method == "getaddressbalance" {
+		log.Printf("[VERUS_RPC] Request body: %s", string(reqBody))
+	}
+
 	httpReq, err := http.NewRequest("POST", v.rpcURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %v", err)
@@ -140,9 +146,9 @@ func (v *VerusClient) GetBestBlockHash() (string, error) {
 
 // VDXFIDResponse represents the response from getvdxfid
 type VDXFIDResponse struct {
-	VDXFID        string `json:"vdxfid"`         // Normalized i-ID (base58check)
-	IndexID       string `json:"indexid"`        // Index ID
-	Hash160Result string `json:"hash160result"`  // 20-byte hash in hex
+	VDXFID        string `json:"vdxfid"`        // Normalized i-ID (base58check)
+	IndexID       string `json:"indexid"`       // Index ID
+	Hash160Result string `json:"hash160result"` // 20-byte hash in hex
 	QualifiedName struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
@@ -199,25 +205,25 @@ type Identity struct {
 
 // GetIdentityResponse represents the full identity response from Verus
 type GetIdentityResponse struct {
-	FriendlyName        string   `json:"friendlyname"`
-	FullyQualifiedName  string   `json:"fullyqualifiedname"`
-	Identity            Identity `json:"identity"`
-	Status              string   `json:"status"`
-	CanSpendFor         bool     `json:"canspendfor"`
-	CanSignFor          bool     `json:"cansignfor"`
-	BlockHeight         int64    `json:"blockheight"`
-	TxID                string   `json:"txid"`
-	Vout                int      `json:"vout"`
+	FriendlyName       string   `json:"friendlyname"`
+	FullyQualifiedName string   `json:"fullyqualifiedname"`
+	Identity           Identity `json:"identity"`
+	Status             string   `json:"status"`
+	CanSpendFor        bool     `json:"canspendfor"`
+	CanSignFor         bool     `json:"cansignfor"`
+	BlockHeight        int64    `json:"blockheight"`
+	TxID               string   `json:"txid"`
+	Vout               int      `json:"vout"`
 }
 
 // AttestationCommit represents an LMS attestation committed to blockchain via identity
 type AttestationCommit struct {
-	KeyID          string    `json:"key_id"`          // LMS key ID (normalized VDXF ID)
-	PubkeyHash     string    `json:"pubkey_hash,omitempty"` // Original pubkey_hash (if available)
-	LMSIndex       string    `json:"lms_index"`       // LMS index committed
-	BlockHeight    int64     `json:"block_height"`    // Block height where committed
-	TxID           string    `json:"txid"`            // Transaction ID
-	Timestamp      time.Time `json:"timestamp"`       // Block timestamp
+	KeyID       string    `json:"key_id"`                // LMS key ID (normalized VDXF ID)
+	PubkeyHash  string    `json:"pubkey_hash,omitempty"` // Original pubkey_hash (if available)
+	LMSIndex    string    `json:"lms_index"`             // LMS index committed
+	BlockHeight int64     `json:"block_height"`          // Block height where committed
+	TxID        string    `json:"txid"`                  // Transaction ID
+	Timestamp   time.Time `json:"timestamp"`             // Block timestamp
 }
 
 // GetIdentity retrieves identity information
@@ -250,9 +256,9 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 
 	// Prepare the identity update JSON
 	identityUpdate := Identity{
-		Name:    current.Identity.Name,
-		Parent:  current.Identity.Parent,
-		SystemID: current.Identity.SystemID,
+		Name:            current.Identity.Name,
+		Parent:          current.Identity.Parent,
+		SystemID:        current.Identity.SystemID,
 		ContentMultiMap: make(map[string]interface{}),
 	}
 
@@ -269,7 +275,7 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 	// Note: We replace the entire array with just the new index (Option B)
 	// History is preserved in blockchain via getidentityhistory API
 	const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
-	
+
 	// Replace the key_id entry with just the new index (not appending to history)
 	// History is available via GetIdentityHistory() method
 	newEntry := map[string]string{
@@ -304,10 +310,10 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 		// Pass funding address as sourceoffunds (5th parameter)
 		// Parameters: identity, returntx=false, tokenupdate=false, feeoffer=0 (default), sourceoffunds=fundingAddress
 		result, err = v.callRPC("updateidentity", []interface{}{
-			identityMap,  // jsonidentity (required)
-			false,        // returntx (optional, default false)
-			false,        // tokenupdate (optional, default false)
-			0,            // feeoffer (optional, default 0 = standard fee)
+			identityMap,    // jsonidentity (required)
+			false,          // returntx (optional, default false)
+			false,          // tokenupdate (optional, default false)
+			0,              // feeoffer (optional, default 0 = standard fee)
 			fundingAddress, // sourceoffunds (optional, explicit funding address)
 		})
 		if err != nil {
@@ -378,7 +384,7 @@ func (v *VerusClient) QueryAttestationCommits(identityName, keyID string) ([]*At
 					// If checkKey looks like a VDXF ID (starts with 'i'), we can't reverse it
 					// But we can try to query Raft with it anyway - it might work if Raft stores normalized IDs
 					commits = append(commits, &AttestationCommit{
-						KeyID:       checkKey, // Normalized VDXF ID
+						KeyID:       checkKey,   // Normalized VDXF ID
 						PubkeyHash:  pubkeyHash, // Try using the same value - might be hex or normalized
 						LMSIndex:    lmsIndex,
 						BlockHeight: identity.BlockHeight,
@@ -480,32 +486,73 @@ func (v *VerusClient) GetNewAddressWithLabel(label string) (string, error) {
 // address: CHIPS address to query
 // Returns balance as float64 (in CHIPS)
 func (v *VerusClient) GetBalance(address string) (float64, error) {
+	log.Printf("[VERUS_GETBALANCE] Starting GetBalance for address: %s", address)
+
 	// First try getaddressbalance (requires addressindex)
 	params := map[string]interface{}{
 		"addresses": []string{address},
 	}
+	log.Printf("[VERUS_GETBALANCE] Attempting getaddressbalance RPC with params: %+v", params)
 	result, err := v.callRPC("getaddressbalance", []interface{}{params})
 	if err == nil {
+		log.Printf("[VERUS_GETBALANCE] getaddressbalance RPC succeeded, raw result: %s", string(result))
 		var balanceObj map[string]interface{}
 		if err := json.Unmarshal(result, &balanceObj); err == nil {
-			if balance, ok := balanceObj["balance"].(float64); ok {
-				return balance / 100000000.0, nil // satoshis to CHIPS
+			log.Printf("[VERUS_GETBALANCE] Parsed balance object: %+v", balanceObj)
+			// Handle both int and float64 for balance (JSON numbers can be either)
+			balanceVal, exists := balanceObj["balance"]
+			if !exists {
+				log.Printf("[VERUS_GETBALANCE] Balance field not found in response object")
+			} else {
+				var balance float64
+				switch v := balanceVal.(type) {
+				case float64:
+					balance = v
+				case int:
+					balance = float64(v)
+				case int64:
+					balance = float64(v)
+				case float32:
+					balance = float64(v)
+				default:
+					log.Printf("[VERUS_GETBALANCE] Balance field type not recognized: %T, value: %v", v, v)
+					balance = -1 // Mark as invalid
+				}
+
+				// If we got a valid balance (even if 0), return it
+				if balance >= 0 {
+					chipsBalance := balance / 100000000.0
+					log.Printf("[VERUS_GETBALANCE] Success from getaddressbalance - Raw balance (satoshis): %f, CHIPS: %f", balance, chipsBalance)
+					return chipsBalance, nil // satoshis to CHIPS
+				}
 			}
+			log.Printf("[VERUS_GETBALANCE] Balance field not found or invalid in response")
+		} else {
+			log.Printf("[VERUS_GETBALANCE] Failed to unmarshal getaddressbalance response: %v", err)
 		}
+	} else {
+		log.Printf("[VERUS_GETBALANCE] getaddressbalance RPC failed: %v", err)
 	}
 
 	// Fallback to getcurrencybalance (does not require addressindex)
+	log.Printf("[VERUS_GETBALANCE] Falling back to getcurrencybalance RPC for address: %s", address)
 	result, err = v.callRPC("getcurrencybalance", []interface{}{address})
 	if err != nil {
+		log.Printf("[VERUS_GETBALANCE] ERROR: getcurrencybalance RPC failed: %v", err)
 		return 0, fmt.Errorf("failed to get balance: %v", err)
 	}
+	log.Printf("[VERUS_GETBALANCE] getcurrencybalance RPC succeeded, raw result: %s", string(result))
 	var currency map[string]float64
 	if err := json.Unmarshal(result, &currency); err != nil {
+		log.Printf("[VERUS_GETBALANCE] ERROR: Failed to unmarshal currency balance: %v, raw result: %s", err, string(result))
 		return 0, fmt.Errorf("failed to unmarshal currency balance: %v", err)
 	}
+	log.Printf("[VERUS_GETBALANCE] Parsed currency map: %+v", currency)
 	if chips, ok := currency["CHIPS"]; ok {
+		log.Printf("[VERUS_GETBALANCE] Success from getcurrencybalance - CHIPS balance: %f", chips)
 		return chips, nil
 	}
+	log.Printf("[VERUS_GETBALANCE] ERROR: CHIPS balance not found in currency map: %+v", currency)
 	return 0, fmt.Errorf("CHIPS balance not found in response")
 }
 
@@ -573,10 +620,10 @@ func (v *VerusClient) GetAllKeyIDs(identityName string) ([]string, error) {
 
 // IdentityHistoryEntry represents a single identity state in history
 type IdentityHistoryEntry struct {
-	Identity    Identity `json:"identity"`
-	BlockHash   string   `json:"blockhash"`
-	Height      int64    `json:"height"`
-	Output      struct {
+	Identity  Identity `json:"identity"`
+	BlockHash string   `json:"blockhash"`
+	Height    int64    `json:"height"`
+	Output    struct {
 		TxID    string `json:"txid"`
 		VoutNum int    `json:"voutnum"`
 	} `json:"output"`
@@ -660,7 +707,6 @@ func (v *VerusClient) GetLMSIndexHistory(identityName, keyID string, heightStart
 
 	return commits, nil
 }
-
 
 // CommitLMSIndexWithPubkeyHash commits an LMS index using pubkey_hash as the key
 // This is the recommended way since pubkey_hash is deterministic and we can pre-compute the normalized ID

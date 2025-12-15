@@ -1,55 +1,65 @@
 # LMS Hash Chain Explorer
 
-A standalone web-based explorer for browsing and searching the LMS hash chain stored in the Raft cluster.
+A comprehensive web-based explorer for browsing and managing LMS hash chains stored in the Raft cluster, with integrated wallet management and blockchain support.
+
+## Features
+
+- **Browse Recent Commits**: View the latest hash chain commits in real-time
+- **Search**: Search by key ID, hash, or index
+- **Chain Visualization**: View complete hash chains with integrity verification
+- **User Authentication**: Secure login/registration system
+- **Key Management**: Generate, import, export, and delete LMS keys
+- **CHIPS Wallet**: Create and manage CHIPS wallets for blockchain transactions
+- **Blockchain Integration**: Per-key toggle for blockchain commits
+- **Statistics Dashboard**: Monitor chain health and activity
 
 ## Quick Start
 
 ### 1. Build the Explorer
 
+**Option A: Use the main build script (recommended)**
+```bash
+cd /root/lms
+./build.sh
+```
+
+**Option B: Build manually**
 ```bash
 cd /root/lms
 go build -o lms-explorer ./cmd/explorer
 ```
 
-This will create the `lms-explorer` binary in the current directory.
-
 ### 2. Start the Explorer
 
-The explorer needs to know where your Raft cluster nodes are running. Specify the API endpoints:
-
+**With logging to file (recommended for debugging):**
 ```bash
-./lms-explorer -port 8081 -raft-endpoints "http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080"
+./lms-explorer -port 8081 -log-file explorer.log
 ```
 
-**Or use defaults** (if your cluster uses the default IPs):
+**With default settings:**
 ```bash
-./lms-explorer
+./lms-explorer -port 8081
 ```
 
-The defaults are: `http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080`
+**View logs in real-time:**
+```bash
+tail -f explorer.log
+```
 
 ### 3. Access the Web Interface
 
-Open your web browser and navigate to:
-
-**If running locally:**
-```
-http://localhost:8081
-```
-
-**If running on a remote server (replace with your server IP):**
-```
-http://159.69.23.29:8081
-```
-
-You should see the LMS Hash Chain Explorer interface.
+Open your browser:
+- **Local**: `http://localhost:8081`
+- **Remote**: `http://<server-ip>:8081`
 
 ## Command Line Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-port` | Port number for the explorer web server | `8081` |
-| `-raft-endpoints` | Comma-separated list of Raft API endpoints | `http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080` |
+| `-port` | Web server port | `8081` |
+| `-raft-endpoints` | Comma-separated Raft API endpoints | `http://159.69.23.29:8080,http://159.69.23.30:8080,http://159.69.23.31:8080` |
+| `-hsm-endpoint` | HSM server endpoint | `http://159.69.23.31:9090` |
+| `-log-file` | Optional log file path | (stdout/stderr) |
 
 ### Examples
 
@@ -63,124 +73,192 @@ You should see the LMS Hash Chain Explorer interface.
 ./lms-explorer -raft-endpoints "http://10.0.0.1:8080,http://10.0.0.2:8080"
 ```
 
-**Both custom:**
+**With log file:**
 ```bash
-./lms-explorer -port 9000 -raft-endpoints "http://10.0.0.1:8080,http://10.0.0.2:8080"
+./lms-explorer -port 8081 -log-file /var/log/lms-explorer.log
 ```
 
-## How to Use the Web Interface
+## Web Interface Guide
 
-### View Recent Commits
+### Public Explorer Tab
 
-1. When you open the explorer, recent commits are displayed automatically in a table
-2. The table shows:
-   - **Key ID**: The identifier for the LMS key
-   - **Index**: The LMS index used
-   - **Hash**: The hash of this commit (truncated for display)
-   - **Previous Hash**: The hash of the previous commit (truncated)
-3. **Click on any row** to view the full chain for that key_id
-4. The list auto-refreshes every 10 seconds
+**View Recent Commits:**
+- Automatically displays the latest 50 commits
+- Shows: Key ID, Index, Hash, Previous Hash
+- Click any row to view the full chain
+- Auto-refreshes every 10 seconds
 
-### Search for a Key
+**Search:**
+- **By Key ID**: Type the key ID (e.g., `user_xxx_key_1`)
+- **By Hash**: Paste a hash value
+- Results show the matching entry with chain navigation
 
-**Search by Key ID:**
-1. Type a key_id in the search bar (e.g., `lms_key_1`)
-2. Click "Search" or press Enter
-3. The full chain for that key will be displayed
-4. You'll see all entries in the chain, with hash links between them
+**View Blockchain Commits:**
+- Click "View Blockchain" button
+- Shows all commits stored on Verus blockchain
+- Displays: Key ID, Label, LMS Index, Block Height, Transaction ID
 
-**Example:**
-- Type: `lms_key_1`
-- Result: Shows the complete hash chain for `lms_key_1` with all entries
+### My Keys Tab (Requires Login)
 
-### Search by Hash
+**Key Management:**
+- **Generate Key**: Create a new LMS key
+- **Import Key**: Import an existing key
+- **Export Key**: Download key for backup
+- **Delete Key**: Remove a key (with confirmation)
 
-1. Copy a hash value (e.g., from the recent commits table or chain view)
-2. Paste it into the search bar
-3. Click "Search"
-4. The explorer will find which entry uses that hash
+**Wallet Balance:**
+- Total wallet balance displayed next to "Import Key" button
+- Shows balance across all your CHIPS wallets
 
-**Example:**
-- Type: `g5WYnCjbDHzQdzvb7uOkmueXZHxbt5VOIO5oLCAi6zQ=`
-- Result: Shows the entry that has this hash, with a link to view the full chain
+**Blockchain Toggle:**
+- Per-key toggle switch in the "Blockchain" column
+- **Enabling**: Checks wallet balance, commits latest Raft index to blockchain
+- **Future commits**: Automatically go to both Raft and blockchain
+- **Disabling**: Commits only go to Raft
 
-### View Statistics
+**Signing:**
+- Select a key and message
+- Click "Sign Message"
+- System checks wallet balance before signing
+- If blockchain is enabled, commit goes to both Raft and blockchain
 
-The statistics dashboard at the top shows:
-- **Total Keys**: Number of unique key_ids in the cluster
-- **Total Commits**: Total number of index commitments
-- **Valid Chains**: Number of chains that pass integrity checks
-- **Broken Chains**: Number of chains with hash chain breaks
-- **Last Updated**: Timestamp of the most recent commit
+### Wallet Tab (Requires Login)
 
-Statistics update automatically every 10 seconds.
+**Create Wallet:**
+- Click "Create New Wallet"
+- System generates a new CHIPS address
+- Address is stored and linked to your account
 
-### View Full Chain Details
+**View Wallets:**
+- Lists all your CHIPS addresses
+- Shows balance for each address
+- Displays creation date
 
-When viewing a chain, you'll see:
+**Refresh Balance:**
+- Click refresh button next to any address
+- Fetches latest balance from CHIPS node
+- Updates displayed balance
 
-1. **Chain Status Badge**: 
-   - ✓ VALID (green) = Chain integrity is verified
-   - ✗ BROKEN (red) = Chain has integrity issues
+**Bulk Refresh:**
+- Click "Refresh Balances" at the top
+- Refreshes all wallet balances at once
 
-2. **Chain Entries**:
-   - Each entry shows:
-     - Entry number and total count (e.g., "Entry 1 of 5")
-     - LMS Index
-     - Key ID
-     - Previous Hash (links to previous entry)
-     - Current Hash (links to next entry)
-     - Signature
-     - Verification status
+## API Endpoints
 
-3. **Visual Links**: Arrows (↓) between entries show the chain structure
+### Public Endpoints
 
-4. **Genesis Entry**: The first entry is highlighted in blue, showing it links to the genesis hash
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/recent?limit=N` | GET | Get recent commits (default: 50, max: 200) |
+| `/api/search?q=<query>` | GET | Search by key_id, hash, or index |
+| `/api/stats` | GET | Get overall statistics |
+| `/api/chain/<key_id>` | GET | Get full chain for a key_id |
+| `/api/blockchain` | GET | Get all blockchain commits |
 
-## Example Workflow
+### Authentication Endpoints
 
-### Scenario: You want to inspect a specific key's history
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/register` | POST | Register new user |
+| `/api/auth/login` | POST | Login user |
+| `/api/auth/me` | GET | Get current user info |
 
-1. **Start the explorer:**
-   ```bash
-   ./lms-explorer -port 8081
-   ```
+### Authenticated Endpoints (Require JWT Token)
 
-2. **Open browser:**
-   ```
-   http://localhost:8081
-   ```
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/my/keys` | GET | List user's keys |
+| `/api/my/generate` | POST | Generate new key |
+| `/api/my/import` | POST | Import key |
+| `/api/my/export` | GET | Export key |
+| `/api/my/delete` | POST | Delete key |
+| `/api/my/sign` | POST | Sign message |
+| `/api/my/verify` | POST | Verify signature |
 
-3. **Find the key in recent commits table:**
-   - Look at the "Recent Commits" table
-   - Find the row with your key_id (e.g., `lms_key_1`)
-   - Click on that row
+### Wallet Endpoints (Require JWT Token)
 
-4. **View the chain:**
-   - The chain view opens below
-   - You see all entries for that key
-   - Green borders = valid entries
-   - Check the "Chain Status" badge at the top
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/my/wallet/list` | GET | List user's wallets |
+| `/api/my/wallet/create` | POST | Create new wallet |
+| `/api/my/wallet/balance?address=<addr>` | GET | Get balance for address |
+| `/api/my/wallet/total-balance` | GET | Get total balance across all wallets |
 
-5. **Inspect a specific entry:**
-   - Scroll through the entries
-   - Each entry shows its hash, previous hash, and signature
-   - Hover over hashes to see full values (if truncated)
+### Blockchain Endpoints (Require JWT Token)
 
-### Scenario: You have a hash and want to find its entry
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/my/key/blockchain/toggle` | POST | Enable/disable blockchain for a key |
+| `/api/my/key/blockchain/status` | GET | Get blockchain status for all keys |
 
-1. **Start the explorer** (if not running)
+## Example API Calls
 
-2. **Open browser and navigate to the explorer**
+```bash
+# Get recent commits
+curl http://localhost:8081/api/recent?limit=20
 
-3. **Paste the hash into the search bar:**
-   - Example: `g5WYnCjbDHzQdzvb7uOkmueXZHxbt5VOIO5oLCAi6zQ=`
+# Search for a key
+curl http://localhost:8081/api/search?q=user_xxx_key_1
 
-4. **Click "Search"**
+# Get statistics
+curl http://localhost:8081/api/stats
 
-5. **View the result:**
-   - The entry matching that hash is displayed
-   - Click "View Full Chain" to see the entire chain for that key
+# Get chain for a key
+curl http://localhost:8081/api/chain/user_xxx_key_1
+
+# Login (get token)
+TOKEN=$(curl -s -X POST http://localhost:8081/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"user","password":"pass"}' | jq -r '.token')
+
+# List wallets (authenticated)
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8081/api/my/wallet/list
+
+# Get total balance
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8081/api/my/wallet/total-balance
+```
+
+## Architecture
+
+- **Backend**: Go HTTP server (`explorer/` package)
+- **Frontend**: Vanilla HTML/CSS/JavaScript (no framework dependencies)
+- **Database**: BoltDB for user data, wallets, and settings
+- **Data Source**: Connects to Raft cluster via HTTP API
+- **Blockchain**: Verus/CHIPS RPC integration
+- **Caching**: In-memory cache for recent commits (5 second TTL)
+- **Auto-refresh**: Frontend polls for updates every 10 seconds
+
+## File Structure
+
+```
+explorer/
+├── server.go              # Main HTTP server and routing
+├── handlers.go            # API request handlers
+├── data.go                # Data fetching, caching, and processing
+├── auth.go                # Authentication and JWT handling
+├── wallet.go              # CHIPS wallet management
+├── wallet_balance.go      # Wallet balance API
+├── walletdb.go            # Wallet database (BoltDB)
+├── blockchain.go          # Verus blockchain integration
+├── blockchain_config.go   # Verus RPC configuration
+├── key_blockchain.go      # Per-key blockchain toggle
+├── key_blockchain_db.go   # Blockchain settings database
+├── hsm_proxy.go           # HSM server proxy with auth
+├── templates/
+│   └── index.html         # Main HTML page (single-page app)
+├── static/
+│   ├── style.css          # Stylesheet
+│   ├── app.js             # Main frontend logic
+│   ├── auth.js            # Authentication UI
+│   ├── mykeys.js          # My Keys tab logic
+│   └── wallet.js          # Wallet tab logic
+└── README.md              # This file
+
+cmd/explorer/
+└── main.go                # Entry point (parses flags, starts server)
+```
 
 ## Troubleshooting
 
@@ -188,16 +266,27 @@ When viewing a chain, you'll see:
 
 **Error: "port already in use"**
 - Solution: Use a different port with `-port 9000`
+- Or kill the existing process: `pkill -f "lms-explorer"`
 
 **Error: "connection refused" to Raft endpoints**
 - Check that your Raft cluster nodes are running
 - Verify the endpoint URLs are correct
 - Ensure the Raft API ports (default 8080) are accessible
 
+### No logs appearing
+
+**If running without log file:**
+- Logs go to stdout/stderr (terminal/tmux session)
+- Check the terminal where you started the explorer
+
+**If running with log file:**
+- Check the log file: `tail -f explorer.log`
+- Ensure the file is writable
+
 ### No data showing
 
 **Empty recent commits table:**
-- Check that you have committed some key indices using `hsm-client sign`
+- Check that you have committed some key indices
 - Verify the Raft endpoints are correct
 - Check the browser console for errors (F12)
 
@@ -206,81 +295,62 @@ When viewing a chain, you'll see:
 - For hash searches, ensure you're using the exact hash value
 - Check that the Raft cluster is responding
 
+### Wallet balance shows 0 or error
+
+**Balance not updating:**
+- Ensure CHIPS node is running with `-addressindex=1`
+- Check Verus RPC credentials in `explorer/blockchain_config.go`
+- Verify the address exists in your CHIPS wallet
+- Check explorer logs for RPC errors
+
+**"Error refreshing balance: HTTP 500":**
+- Check explorer logs for detailed error
+- Verify CHIPS node is accessible
+- Ensure RPC credentials are correct
+
+### Blockchain toggle not working
+
+**"Insufficient balance" error:**
+- Fund your CHIPS wallet address
+- Minimum balance needed for transaction fees (~0.001 CHIPS)
+- Use the refresh button to update balance
+
+**Toggle enabled but commits not going to blockchain:**
+- Check explorer logs for blockchain commit errors
+- Verify Verus identity is configured correctly
+- Ensure CHIPS node is synced and responding
+
 ### Browser can't connect
 
 **"Connection refused" or "This site can't be reached":**
-- If running on a remote server, use the server's IP address: `http://<server-ip>:8081`
+- If running on a remote server, use the server's IP: `http://<server-ip>:8081`
 - Check firewall settings on port 8081
-- Ensure the explorer process is running (`ps aux | grep explorer`)
-
-## API Endpoints (for developers)
-
-The explorer exposes REST API endpoints:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/recent?limit=N` | GET | Get recent commits (default: 50, max: 200) |
-| `/api/search?q=<query>` | GET | Search by key_id, hash, or index |
-| `/api/stats` | GET | Get overall statistics |
-| `/api/chain/<key_id>` | GET | Get full chain for a key_id |
-
-**Example API calls:**
-
-```bash
-# Get recent 20 commits
-curl http://localhost:8081/api/recent?limit=20
-
-# Search for a key
-curl http://localhost:8081/api/search?q=lms_key_1
-
-# Get statistics
-curl http://localhost:8081/api/stats
-
-# Get chain for a key
-curl http://localhost:8081/api/chain/lms_key_1
-```
-
-## Architecture
-
-- **Backend**: Go HTTP server (`explorer/` package)
-- **Frontend**: Vanilla HTML/CSS/JavaScript (no framework dependencies)
-- **Data Source**: Connects to Raft cluster via HTTP API
-- **Caching**: In-memory cache for recent commits (5 second TTL)
-- **Auto-refresh**: Frontend polls for updates every 10 seconds
-
-## File Structure
-
-```
-explorer/
-├── server.go          # Main HTTP server and routing
-├── handlers.go        # API request handlers
-├── data.go           # Data fetching, caching, and processing
-├── templates/
-│   └── index.html    # Main HTML page (single-page app)
-├── static/
-│   ├── style.css     # Stylesheet (modern, responsive)
-│   └── app.js        # Frontend JavaScript (API calls, UI updates)
-└── README.md         # This file
-
-cmd/explorer/
-└── main.go           # Entry point (parses flags, starts server)
-```
+- Ensure the explorer process is running: `ps aux | grep lms-explorer`
 
 ## Integration with Your Cluster
 
-The explorer connects to your Raft cluster using the same HTTP API that `hsm-client` uses:
-- `/list` - Get all log entries (used to discover keys)
-- `/key/<key_id>/chain` - Get full chain for a key_id
-- `/key/<key_id>/index` - Get last index for a key_id
+The explorer connects to:
+- **Raft Cluster**: HTTP API for hash chain data
+- **HSM Server**: For key operations and signing
+- **CHIPS Node**: Verus RPC for blockchain operations
 
-The explorer will try each endpoint in the provided list until one responds successfully. This provides automatic failover if a node is down.
+The explorer will try each Raft endpoint until one responds successfully, providing automatic failover if a node is down.
+
+## Security Notes
+
+- All authenticated endpoints require a valid JWT token
+- Tokens expire after 24 hours
+- Wallet operations are user-scoped (users can only access their own wallets)
+- Keys are stored securely in the HSM server
+- Blockchain transactions use explicit funding addresses from user wallets
 
 ## Next Steps
 
-Once the explorer is running, you can:
-1. Browse recent commits to see what's happening
-2. Search for specific keys or hashes
-3. Inspect chain integrity
-4. Monitor statistics to track chain health
+Once the explorer is running:
+1. Register a user account
+2. Create a CHIPS wallet
+3. Generate or import an LMS key
+4. Enable blockchain for the key (optional)
+5. Start signing messages and viewing commits
 
-For more information about the LMS system, see the main project documentation.
+For more information, see the main project documentation in `/root/lms/docs/`.

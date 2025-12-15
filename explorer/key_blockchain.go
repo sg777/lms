@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -202,6 +203,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 
 // handleKeyBlockchainStatus returns blockchain status for all user's keys
 func (s *ExplorerServer) handleKeyBlockchainStatus(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[BLOCKCHAIN_STATUS] Handler called - Method: %s, URL: %s", r.Method, r.URL.String())
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)

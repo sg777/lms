@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -122,9 +123,12 @@ func (s *ExplorerServer) handleWalletCreate(w http.ResponseWriter, r *http.Reque
 
 // handleWalletBalance gets the balance for a specific wallet address
 func (s *ExplorerServer) handleWalletBalance(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[WALLET_BALANCE] ===== HANDLER CALLED ===== URL: %s, Method: %s, RemoteAddr: %s", r.URL.String(), r.Method, r.RemoteAddr)
+
 	// Safety against panics
 	defer func() {
 		if rec := recover(); rec != nil {
+			log.Printf("[WALLET_BALANCE] PANIC RECOVERED: %v", rec)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -135,6 +139,7 @@ func (s *ExplorerServer) handleWalletBalance(w http.ResponseWriter, r *http.Requ
 	}()
 
 	if r.Method != http.MethodGet {
+		log.Printf("[WALLET_BALANCE] Method not allowed: %s (expected GET)", r.Method)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -169,7 +174,9 @@ func (s *ExplorerServer) handleWalletBalance(w http.ResponseWriter, r *http.Requ
 
 	// Get address from query parameter
 	address := r.URL.Query().Get("address")
+	log.Printf("[WALLET_BALANCE] Received request - Address from query param: %s", address)
 	if address == "" {
+		log.Printf("[WALLET_BALANCE] ERROR: address parameter is missing")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -182,6 +189,7 @@ func (s *ExplorerServer) handleWalletBalance(w http.ResponseWriter, r *http.Requ
 	// Verify wallet belongs to user
 	wallet, err := s.walletDB.GetWalletByAddress(address)
 	if err != nil {
+		log.Printf("[WALLET_BALANCE] ERROR: Wallet not found in DB for address: %s, error: %v", address, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -191,7 +199,10 @@ func (s *ExplorerServer) handleWalletBalance(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	log.Printf("[WALLET_BALANCE] Wallet found in DB - ID: %s, UserID: %s, Current cached balance: %f", wallet.ID, wallet.UserID, wallet.Balance)
+
 	if wallet.UserID != claims.UserID {
+		log.Printf("[WALLET_BALANCE] ERROR: Wallet user mismatch - Wallet UserID: %s, Token UserID: %s", wallet.UserID, claims.UserID)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -202,31 +213,44 @@ func (s *ExplorerServer) handleWalletBalance(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Get balance from blockchain
+	log.Printf("[WALLET_BALANCE] Calling GetBalance for address: %s", address)
 	client := newVerusClientFromEnv()
 
 	balance, err := client.GetBalance(address)
+	log.Printf("[WALLET_BALANCE] GetBalance returned - Balance: %f, Error: %v", balance, err)
+
 	if err != nil {
+		log.Printf("[WALLET_BALANCE] ERROR: Failed to get balance from blockchain - Address: %s, Error: %v", address, err)
 		// Do not return 500; return JSON with success=false so UI can handle gracefully
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		response := map[string]interface{}{
 			"success": false,
 			"error":   fmt.Sprintf("Failed to get balance: %v", err),
 			"balance": 0.0,
-		})
+		}
+		log.Printf("[WALLET_BALANCE] Sending error response to UI: %+v", response)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
 		return
 	}
+
+	log.Printf("[WALLET_BALANCE] Successfully retrieved balance: %f CHIPS for address: %s", balance, address)
 
 	// Update cached balance
 	s.walletDB.UpdateWalletBalance(wallet.ID, balance)
 	wallet.Balance = balance
+	log.Printf("[WALLET_BALANCE] Updated cached balance in DB - Wallet ID: %s, New balance: %f", wallet.ID, balance)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	response := map[string]interface{}{
 		"success": true,
 		"address": address,
 		"balance": balance,
 		"wallet":  wallet,
-	})
+	}
+	log.Printf("[WALLET_BALANCE] Sending success response to UI - Address: %s, Balance: %f, Wallet object: ID=%s, UserID=%s, Balance=%f, CreatedAt=%s",
+		address, balance, wallet.ID, wallet.UserID, wallet.Balance, wallet.CreatedAt)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // generateWalletID generates a unique wallet ID

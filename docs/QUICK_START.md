@@ -1,10 +1,32 @@
 # Quick Start Guide
 
-## Build
+## Build All Components
 
+**Recommended: Use the build script**
 ```bash
 cd /root/lms
-go build -o lms-service .
+./build.sh
+```
+
+This builds all components:
+- `lms-service` - Main Raft service
+- `lms-explorer` - Web explorer interface
+- `hsm-server` - HSM server
+- `hsm-client` - HSM client tool
+
+**Or build individually:**
+```bash
+# Build main service
+go build -o lms-service ./main.go
+
+# Build explorer
+go build -o lms-explorer ./cmd/explorer
+
+# Build HSM server
+go build -o hsm-server ./cmd/hsm-server
+
+# Build HSM client
+go build -o hsm-client ./cmd/hsm-client
 ```
 
 ## Run on 3 Nodes
@@ -71,8 +93,36 @@ curl -X POST http://159.69.23.29:8080/propose \
 - `-bootstrap`: Bootstrap cluster (only on first node)
 - `-genesis-hash`: Genesis hash (default: lms_genesis_hash_verifiable_state_chains)
 
+## Start Explorer
+
+After the Raft cluster is running, start the web explorer:
+
+```bash
+# With logging to file (recommended)
+./lms-explorer -port 8081 -log-file explorer.log
+
+# Or with default settings
+./lms-explorer -port 8081
+```
+
+Access at: `http://localhost:8081`
+
+See [Explorer README](../explorer/README.md) for detailed usage.
+
+## Start HSM Server
+
+The HSM server handles signing operations:
+
+```bash
+./hsm-server -port 9090
+```
+
+The explorer connects to the HSM server at the configured endpoint (default: `http://159.69.23.31:9090`).
+
 ## Default Ports
 
 - **7000**: Raft internal communication
 - **8080**: HTTP API for HSM clients
+- **8081**: Explorer web interface
+- **9090**: HSM server
 
