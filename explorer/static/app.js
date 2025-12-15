@@ -486,10 +486,18 @@ async function loadBlockchainCommits() {
         
         const data = await response.json();
         
+        console.log('Blockchain API response:', data);
+        
         if (!data.success) {
             throw new Error(data.error || 'Failed to load blockchain commits');
         }
         
+        if (!data.commits || data.commits.length === 0) {
+            blockchainView.innerHTML = '<div class="info">No blockchain commits found in identity ' + escapeHtml(data.identity) + '</div>';
+            return;
+        }
+        
+        console.log('Displaying', data.commits.length, 'commits');
         displayBlockchainCommits(data, blockchainView);
     } catch (error) {
         blockchainView.innerHTML = `<div class="error">Error loading blockchain commits: ${escapeHtml(error.message)}</div>`;
@@ -522,13 +530,19 @@ function displayBlockchainCommits(data, container) {
     `;
     
     data.commits.forEach((commit, index) => {
-        const txIdShort = commit.txid ? commit.txid.substring(0, 16) + '...' : 'N/A';
+        // Handle both camelCase and snake_case field names
+        const keyId = commit.key_id || commit.keyID || '';
+        const lmsIndex = commit.lms_index || commit.lmsIndex || '';
+        const blockHeight = commit.block_height || commit.blockHeight || 0;
+        const txid = commit.txid || commit.txID || '';
+        
+        const txIdShort = txid ? txid.substring(0, 16) + '...' : 'N/A';
         html += `
             <tr>
-                <td class="hash-cell" title="${escapeHtml(commit.key_id)}">${truncateHash(commit.key_id, 20)}</td>
-                <td><strong>${escapeHtml(commit.lms_index)}</strong></td>
-                <td>${commit.block_height}</td>
-                <td class="hash-cell" title="${commit.txid || ''}">${txIdShort}</td>
+                <td class="hash-cell" title="${escapeHtml(keyId)}">${truncateHash(keyId, 20)}</td>
+                <td><strong>${escapeHtml(lmsIndex)}</strong></td>
+                <td>${blockHeight}</td>
+                <td class="hash-cell" title="${txid}">${txIdShort}</td>
             </tr>
         `;
     });
