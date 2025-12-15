@@ -7,12 +7,20 @@ echo "=========================================="
 echo "Building ALL LMS Components"
 echo "=========================================="
 
+# Initialize/update Git submodules (required for build)
+if [ -f .gitmodules ]; then
+    echo "Initializing/updating Git submodules..."
+    if git submodule update --init --recursive; then
+        echo "   ✅ Submodules initialized successfully"
+    else
+        echo "   ⚠️  Warning: Submodule update failed, attempting to continue..."
+    fi
+fi
+
 # Pull latest code (optional - comment out if you don't want auto-pull)
 if [ -d .git ]; then
     echo "Pulling latest code..."
     git pull || echo "Warning: git pull failed (not a git repo or no network)"
-    echo "Initializing/updating Git submodules..."
-    git submodule update --init --recursive || echo "Warning: submodule update failed"
 fi
 
 # Build hash-sigs library if needed
