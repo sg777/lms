@@ -16,6 +16,7 @@ func main() {
 		identity    = flag.String("identity", "sg777z.chips.vrsc@", "Identity to update")
 		testKeyID   = flag.String("key-id", "test_funding_key", "Test key ID for commit")
 		testIndex   = flag.String("lms-index", "999", "Test LMS index to commit")
+		fundingAddr = flag.String("funding-address", "", "Specific funding address to use (if not provided, will auto-detect)")
 	)
 	flag.Parse()
 
@@ -24,64 +25,88 @@ func main() {
 	fmt.Println("=== Testing Explicit Funding Address ===")
 	fmt.Println()
 
-	// Step 1: List all addresses in wallet
-	fmt.Println("Step 1: Listing all addresses in wallet...")
-	addresses, err := client.ListAddresses()
-	if err != nil {
-		log.Fatalf("Failed to list addresses: %v", err)
-	}
+	var selectedAddr AddressBalance
 
-	if len(addresses) == 0 {
-		log.Fatal("No addresses found in wallet. Please create some addresses first.")
-	}
-
-	fmt.Printf("Found %d addresses in wallet\n", len(addresses))
-	fmt.Println()
-
-	// Step 2: Check balances for each address
-	fmt.Println("Step 2: Checking balances for each address...")
-	type AddressBalance struct {
-		Address string
-		Balance float64
-	}
-	var addressesWithBalance []AddressBalance
-
-	for _, addr := range addresses {
-		balance, err := client.GetBalance(addr)
+	// If funding address is explicitly provided, use it
+	if *fundingAddr != "" {
+		fmt.Println("Step 1: Using provided funding address...")
+		balance, err := client.GetBalance(*fundingAddr)
 		if err != nil {
-			fmt.Printf("  ⚠️  Failed to get balance for %s: %v\n", addr, err)
-			continue
+			log.Fatalf("Failed to get balance for address %s: %v", *fundingAddr, err)
 		}
-		fmt.Printf("  Address: %s\n", addr)
-		fmt.Printf("  Balance: %.8f CHIPS\n", balance)
+		selectedAddr = AddressBalance{
+			Address: *fundingAddr,
+			Balance: balance,
+		}
+		fmt.Printf("  Address: %s\n", selectedAddr.Address)
+		fmt.Printf("  Balance: %.8f CHIPS\n", selectedAddr.Balance)
+		fmt.Println()
+	} else {
+		// Step 1: List all addresses in wallet
+		fmt.Println("Step 1: Listing all addresses in wallet...")
+		addresses, err := client.ListAddresses()
+		if err != nil {
+			log.Fatalf("Failed to list addresses: %v\n\nTip: You can specify an address manually using -funding-address=<address>", err)
+		}
+
+		if len(addresses) == 0 {
+			log.Fatal("No addresses found in wallet. Please create some addresses first.")
+		}
+
+		fmt.Printf("Found %d addresses in wallet\n", len(addresses))
 		fmt.Println()
 
-		if balance > 0 {
-			addressesWithBalance = append(addressesWithBalance, AddressBalance{
-				Address: addr,
-				Balance: balance,
-			})
+		// Step 2: Check balances for each address
+		fmt.Println("Step 2: Checking balances for each address...")
+		type AddressBalance struct {
+			Address string
+			Balance float64
 		}
-	}
+		var addressesWithBalance []AddressBalance
 
-	if len(addressesWithBalance) == 0 {
-		log.Fatal("No addresses with balance found. Please fund at least one address.")
-	}
+		for _, addr := range addresses {
+			balance, err := client.GetBalance(addr)
+			if err != nil {
+				fmt.Printf("  ⚠️  Failed to get balance for %s: %v\n", addr, err)
+				continue
+			}
+			fmt.Printf("  Address: %s\n", addr)
+			fmt.Printf("  Balance: %.8f CHIPS\n", balance)
+			fmt.Println()
 
-	// Step 3: Select address with highest balance
-	selectedAddr := addressesWithBalance[0]
-	for _, ab := range addressesWithBalance {
-		if ab.Balance > selectedAddr.Balance {
-			selectedAddr = ab
+			if balance > 0 {
+				addressesWithBalance = append(addressesWithBalance, AddressBalance{
+					Address: addr,
+					Balance: balance,
+				})
+			}
 		}
-	}
 
-	fmt.Printf("Step 3: Selected address for funding: %s\n", selectedAddr.Address)
-	fmt.Printf("  Balance: %.8f CHIPS\n", selectedAddr.Balance)
-	fmt.Println()
+		if len(addressesWithBalance) == 0 {
+			log.Fatal("No addresses with balance found. Please fund at least one address.")
+		}
+
+		// Step 3: Select address with highest balance
+		selectedAddr = addressesWithBalance[0]
+		for _, ab := range addressesWithBalance {
+			if ab.Balance > selectedAddr.Balance {
+				selectedAddr = ab
+			}
+		}
+
+		fmt.Printf("Step 3: Selected address for funding: %s\n", selectedAddr.Address)
+		fmt.Printf("  Balance: %.8f CHIPS\n", selectedAddr.Balance)
+		fmt.Println()
+	}
 
 	// Step 4: Get balance before transaction
-	fmt.Println("Step 4: Getting balance BEFORE transaction...")
+	stepNum := 4
+	if *fundingAddr == "" {
+		stepNum = 4
+	} else {
+		stepNum = 2
+	}
+	fmt.Printf("Step %d: Getting balance BEFORE transaction...\n", stepNum)
 	balanceBefore, err := client.GetBalance(selectedAddr.Address)
 	if err != nil {
 		log.Fatalf("Failed to get balance before: %v", err)
@@ -90,7 +115,8 @@ func main() {
 	fmt.Println()
 
 	// Step 5: Commit to blockchain with explicit funding address
-	fmt.Printf("Step 5: Committing to blockchain with explicit funding address...\n")
+	stepNum++
+	fmt.Printf("Step %d: Committing to blockchain with explicit funding address...\n", stepNum)
 	fmt.Printf("  Identity: %s\n", *identity)
 	fmt.Printf("  Key ID: %s\n", *testKeyID)
 	fmt.Printf("  LMS Index: %s\n", *testIndex)
@@ -114,12 +140,8 @@ func main() {
 	fmt.Println()
 
 	// Step 6: Wait a bit and check balance after
-	fmt.Println("Step 6: Waiting 3 seconds for transaction to be processed...")
-	// In a real scenario, you might want to wait for confirmation
-	// For now, just wait a bit
-	// time.Sleep(3 * time.Second)
-
-	fmt.Println("Step 7: Getting balance AFTER transaction...")
+	stepNum++
+	fmt.Printf("Step %d: Getting balance AFTER transaction...\n", stepNum)
 	balanceAfter, err := client.GetBalance(selectedAddr.Address)
 	if err != nil {
 		log.Fatalf("Failed to get balance after: %v", err)
@@ -146,8 +168,9 @@ func main() {
 	}
 
 	// Step 8: Verify the commit was recorded
+	stepNum++
 	fmt.Println()
-	fmt.Println("Step 8: Verifying commit was recorded in identity...")
+	fmt.Printf("Step %d: Verifying commit was recorded in identity...\n", stepNum)
 	commits, err := client.QueryAttestationCommits(*identity, normalizedKeyID)
 	if err != nil {
 		log.Printf("⚠️  Failed to query commits: %v", err)
