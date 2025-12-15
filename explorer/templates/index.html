@@ -74,7 +74,10 @@
             <div class="section">
                 <div class="section-header">
                     <h2>Recent Commits</h2>
-                    <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
+                    <div>
+                        <button id="viewBlockchainBtn" class="refresh-btn" style="margin-right: 10px;">🔗 View Blockchain</button>
+                        <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
+                    </div>
                 </div>
                 <div id="recentCommits" class="table-container">
                     <div class="loading">Loading recent commits...</div>
@@ -97,6 +100,18 @@
                     <button id="closeChainBtn" class="close-btn">Close</button>
                 </div>
                 <div id="chainView" class="chain-container"></div>
+            </div>
+
+            <!-- Blockchain View -->
+            <div class="section" id="blockchainSection" style="display: none;">
+                <div class="section-header">
+                    <h2>Blockchain Commits (Verus)</h2>
+                    <div>
+                        <button id="refreshBlockchainBtn" class="refresh-btn">🔄 Refresh</button>
+                        <button id="closeBlockchainBtn" class="close-btn">Close</button>
+                    </div>
+                </div>
+                <div id="blockchainView" class="table-container"></div>
             </div>
         </div>
 

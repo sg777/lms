@@ -54,6 +54,16 @@ function setupEventListeners() {
     document.getElementById('clearSearchBtn').addEventListener('click', clearSearch);
     document.getElementById('closeChainBtn').addEventListener('click', closeChain);
     
+    // Blockchain view
+    const viewBlockchainBtn = document.getElementById('viewBlockchainBtn');
+    const refreshBlockchainBtn = document.getElementById('refreshBlockchainBtn');
+    const closeBlockchainBtn = document.getElementById('closeBlockchainBtn');
+    if (viewBlockchainBtn) viewBlockchainBtn.addEventListener('click', loadBlockchainCommits);
+    if (refreshBlockchainBtn) refreshBlockchainBtn.addEventListener('click', loadBlockchainCommits);
+    if (closeBlockchainBtn) closeBlockchainBtn.addEventListener('click', () => {
+        document.getElementById('blockchainSection').style.display = 'none';
+    });
+    
     // Authentication
     const loginBtn = document.getElementById('loginBtn');
     const registerBtn = document.getElementById('registerBtn');
@@ -430,6 +440,82 @@ function displayChain(chain, container) {
         `;
     });
 
+    container.innerHTML = html;
+}
+
+// Load blockchain commits from Verus
+async function loadBlockchainCommits() {
+    const blockchainSection = document.getElementById('blockchainSection');
+    const blockchainView = document.getElementById('blockchainView');
+    
+    if (!blockchainSection || !blockchainView) {
+        alert('Blockchain view not available');
+        return;
+    }
+    
+    blockchainSection.style.display = 'block';
+    blockchainView.innerHTML = '<div class="loading">Loading blockchain commits...</div>';
+    
+    // Scroll to blockchain section
+    blockchainSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/blockchain`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load blockchain commits');
+        }
+        
+        displayBlockchainCommits(data, blockchainView);
+    } catch (error) {
+        blockchainView.innerHTML = `<div class="error">Error loading blockchain commits: ${escapeHtml(error.message)}</div>`;
+        console.error('Blockchain load error:', error);
+    }
+}
+
+function displayBlockchainCommits(data, container) {
+    if (!data.commits || data.commits.length === 0) {
+        container.innerHTML = '<div class="info">No blockchain commits found</div>';
+        return;
+    }
+    
+    let html = `
+        <div style="margin-bottom: 20px; padding: 15px; background: #f0f9ff; border-radius: 8px; border-left: 4px solid #3b82f6;">
+            <strong>Identity:</strong> ${escapeHtml(data.identity)}<br>
+            <strong>Block Height:</strong> ${data.block_height}<br>
+            <strong>Total Commits:</strong> ${data.commit_count}
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Key ID (Normalized)</th>
+                    <th>LMS Index</th>
+                    <th>Block Height</th>
+                    <th>Transaction ID</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    data.commits.forEach((commit, index) => {
+        const txIdShort = commit.txid ? commit.txid.substring(0, 16) + '...' : 'N/A';
+        html += `
+            <tr>
+                <td class="hash-cell" title="${escapeHtml(commit.key_id)}">${truncateHash(commit.key_id, 20)}</td>
+                <td><strong>${escapeHtml(commit.lms_index)}</strong></td>
+                <td>${commit.block_height}</td>
+                <td class="hash-cell" title="${commit.txid || ''}">${txIdShort}</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
     container.innerHTML = html;
 }
 

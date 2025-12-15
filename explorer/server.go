@@ -106,6 +106,7 @@ func (s *ExplorerServer) Start() error {
 	mux.HandleFunc("/api/search", s.handleSearch)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/chain/", s.handleChain) // /api/chain/<key_id>
+	mux.HandleFunc("/api/blockchain", s.handleBlockchain) // /api/blockchain - all blockchain commits
 	
 	// Authentication endpoints
 	mux.HandleFunc("/api/auth/register", s.authServer.Register)

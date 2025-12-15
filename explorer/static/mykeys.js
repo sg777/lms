@@ -47,7 +47,7 @@ async function loadMyKeys(silent = false) {
                     <td>
                         <button class="auth-btn" onclick="exportKey('${keyIdEscaped}')" style="margin-right: 5px; padding: 5px 10px; font-size: 0.85em;">📥 Export</button>
                         <button class="auth-btn" onclick="deleteKey('${keyIdEscaped}')" style="margin-right: 5px; padding: 5px 10px; font-size: 0.85em; background: #f87171;">🗑️ Delete</button>
-                        <button class="auth-btn" onclick="viewChain('${keyIdEscaped}')" style="padding: 5px 10px; font-size: 0.85em;">🔗 View Chain</button>
+                        <button class="auth-btn" onclick="if (typeof viewChain === 'function') { viewChain('${keyIdEscaped}'); } else { viewChainAfterSign('${keyIdEscaped}'); }" style="padding: 5px 10px; font-size: 0.85em;">🔗 View Chain</button>
                     </td>
                 </tr>
             `;
