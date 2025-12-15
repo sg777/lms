@@ -205,6 +205,8 @@ func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash s
 	blockchainErr := error(nil)
 	if s.blockchainEnabled && s.blockchainClient != nil && s.blockchainIdentity != "" {
 		// Always commit to blockchain (for testing: dual commit)
+		// Note: Wallet address is passed in the request but Verus RPC uses wallet's default funds
+		// Balance checking is done in the explorer before calling HSM server
 		_, _, blockchainErr = s.blockchainClient.CommitLMSIndexWithPubkeyHash(
 			s.blockchainIdentity,
 			pubkeyHashHex,
