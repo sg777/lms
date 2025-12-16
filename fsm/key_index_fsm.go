@@ -204,6 +204,7 @@ func (f *KeyIndexFSM) Apply(l *raft.Log) interface{} {
 		Hash:         entry.Hash,
 		Signature:    entry.Signature,
 		PublicKey:    entry.PublicKey,
+		RecordType:   entry.RecordType, // Include record type for proper chain retrieval
 	}
 	f.pubkeyHashEntries[pubkeyHash] = append(f.pubkeyHashEntries[pubkeyHash], entryCopy)
 

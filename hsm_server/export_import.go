@@ -5,8 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
+
+	"github.com/verifiable-state-chains/lms/fsm"
 )
 
 // ExportKeyResponse represents the exported key data
@@ -312,8 +315,10 @@ func (s *HSMServer) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		KeyID  string `json:"key_id"`
-		UserID string `json:"user_id,omitempty"` // User ID from JWT (added by explorer proxy)
+		KeyID             string `json:"key_id"`
+		UserID            string `json:"user_id,omitempty"`            // User ID from JWT (added by explorer proxy)
+		WalletAddress     string `json:"wallet_address,omitempty"`     // CHIPS wallet address for funding (set by explorer proxy)
+		BlockchainEnabled bool   `json:"blockchain_enabled,omitempty"` // Whether to commit to blockchain for this key (per-key control)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -377,6 +382,39 @@ func (s *HSMServer) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(response)
 		return
+	}
+
+	// Before deleting, commit a "delete" record to Raft and blockchain (if enabled)
+	// This preserves the deletion event in the attestation chain
+	pubkeyHashBase64 := fsm.ComputePubkeyHash(key.PublicKey)
+	// Decode base64 to get raw bytes, then format as hex
+	pubkeyHashBytes, err := base64.StdEncoding.DecodeString(pubkeyHashBase64)
+	if err == nil {
+		pubkeyHashHex := fmt.Sprintf("%x", pubkeyHashBytes)
+	
+		// Query Raft for current index and hash
+		raftIndex, raftHash, raftExists, err := s.queryRaftByPubkeyHash(pubkeyHashHex)
+		if err != nil {
+			log.Printf("[WARNING] Failed to query Raft for key %s before deletion: %v. Proceeding with deletion anyway.", req.KeyID, err)
+		} else if raftExists {
+			// Commit delete record with next index
+			deleteIndex := raftIndex + 1
+			if raftHash == "" {
+				// If no hash in response, use GenesisHash (shouldn't happen, but be safe)
+				raftHash = fsm.GenesisHash
+			}
+
+			log.Printf("[INFO] Committing delete record for key %s at index %d (previous_hash=%s)", req.KeyID, deleteIndex, raftHash)
+			if err := s.commitIndexToRaft(req.KeyID, deleteIndex, raftHash, key.PublicKey, req.WalletAddress, req.BlockchainEnabled, "delete"); err != nil {
+				log.Printf("[WARNING] Failed to commit delete record for key %s: %v. Proceeding with deletion anyway.", req.KeyID, err)
+			} else {
+				log.Printf("[INFO] Successfully committed delete record for key %s at index %d", req.KeyID, deleteIndex)
+			}
+		} else {
+			log.Printf("[INFO] Key %s has no Raft entries - skipping delete record commit", req.KeyID)
+		}
+	} else {
+		log.Printf("[WARNING] Failed to decode pubkey hash for key %s: %v. Proceeding with deletion anyway.", req.KeyID, err)
 	}
 
 	// Delete from database

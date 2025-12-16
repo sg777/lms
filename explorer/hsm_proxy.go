@@ -400,6 +400,7 @@ func (s *ExplorerServer) handleDeleteKey(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	userID := claims.UserID
 
 	// Read request body
 	var reqBody map[string]interface{}
@@ -409,7 +410,31 @@ func (s *ExplorerServer) handleDeleteKey(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Add user_id to request
-	reqBody["user_id"] = claims.UserID
+	reqBody["user_id"] = userID
+
+	// Get blockchain enablement status for this key
+	keyID, ok := reqBody["key_id"].(string)
+	if ok && keyID != "" {
+		setting, err := s.keyBlockchainDB.GetSetting(userID, keyID)
+		if err == nil && setting != nil && setting.Enabled {
+			// Blockchain is enabled for this key - get wallet address for funding
+			reqBody["blockchain_enabled"] = true
+
+			// Get user's wallets to find a funding address
+			wallets, err := s.walletDB.GetWalletsByUserID(userID)
+			if err == nil && len(wallets) > 0 {
+				// Use first wallet with balance, or first wallet if none have balance
+				for _, wallet := range wallets {
+					if wallet.Address != "" {
+						reqBody["wallet_address"] = wallet.Address
+						break
+					}
+				}
+			}
+		} else {
+			reqBody["blockchain_enabled"] = false
+		}
+	}
 
 	// Forward request to HSM server
 	jsonData, _ := json.Marshal(reqBody)
