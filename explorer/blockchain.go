@@ -22,6 +22,13 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 	client := newVerusClientFromEnv()
 	identityName := verusIdentityName()
 
+	// Get bootstrap block height from environment (if set)
+	// Commits before this block height will be filtered out
+	bootstrapHeight := getBootstrapBlockHeight()
+	if bootstrapHeight > 0 {
+		log.Printf("[INFO] Bootstrap block height configured: %d - filtering commits before this height", bootstrapHeight)
+	}
+
 	// Get all commits from current identity state
 	commits, err := client.QueryAttestationCommits(identityName, "")
 	if err != nil {
@@ -31,7 +38,12 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 
 	// Get identity history to find actual block heights for each commit
 	// This is needed because QueryAttestationCommits only returns current identity block height
-	history, err := client.GetIdentityHistory(identityName, 0, 0)
+	// If bootstrap height is set, only fetch history from that point forward
+	historyStartHeight := int64(0)
+	if bootstrapHeight > 0 {
+		historyStartHeight = bootstrapHeight
+	}
+	history, err := client.GetIdentityHistory(identityName, historyStartHeight, 0)
 	if err != nil {
 		// If history fails, log the error but continue with current state
 		log.Printf("[WARNING] Failed to get identity history: %v. Using current block height for all commits.", err)
@@ -46,7 +58,7 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 	if history != nil && len(history.History) > 0 {
 		const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
 		log.Printf("[INFO] Processing %d history entries to find commit block heights", len(history.History))
-		
+
 		// Process ALL history entries and find the OLDEST (lowest) block height for each commit
 		// We want the FIRST time each lms_index was committed, which is the oldest block height
 		// Process in both directions to ensure we catch the oldest regardless of history order
@@ -94,9 +106,15 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 	// Cache key_id label lookups to avoid redundant queries for the same canonical key ID
 	keyIDLabelCache := make(map[string]string) // normalizedKeyID -> key_id_label
 	
-	enrichedCommits := make([]map[string]interface{}, len(commits))
+	// Filter commits by bootstrap block height if configured
+	if bootstrapHeight > 0 {
+		log.Printf("[INFO] Will filter commits below bootstrap block height %d", bootstrapHeight)
+	}
+	
+	enrichedCommits := make([]map[string]interface{}, 0, len(commits))
 	matchedCount := 0
-	for i, commit := range commits {
+	filteredCount := 0
+	for _, commit := range commits {
 		// Try to get actual block height from history
 		blockHeight := commit.BlockHeight
 		txid := commit.TxID
@@ -124,6 +142,13 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 			keyIDLabelCache[commit.KeyID] = keyIDLabel // Cache result (even if empty)
 		}
 
+		// Filter by bootstrap block height if configured
+		if bootstrapHeight > 0 && blockHeight < bootstrapHeight {
+			filteredCount++
+			log.Printf("[DEBUG] Filtering commit: keyID=%s, lmsIndex=%s, blockHeight=%d (below bootstrap %d)", commit.KeyID, commit.LMSIndex, blockHeight, bootstrapHeight)
+			continue // Skip this commit
+		}
+
 		enrichedCommit := map[string]interface{}{
 			"key_id":       commit.KeyID, // Canonical key ID (normalized VDXF ID) - same for all commits of this key
 			"pubkey_hash":  commit.PubkeyHash,
@@ -134,10 +159,13 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 			"key_id_label": keyIDLabel, // User-friendly key_id label from Raft
 		}
 
-		enrichedCommits[i] = enrichedCommit
+		enrichedCommits = append(enrichedCommits, enrichedCommit)
 	}
 	
 	log.Printf("[INFO] Matched %d out of %d commits with historical block heights", matchedCount, len(commits))
+	if bootstrapHeight > 0 {
+		log.Printf("[INFO] Filtered out %d commits below bootstrap block height %d", filteredCount, bootstrapHeight)
+	}
 
 	// Sort commits by block height (descending - highest/newest first)
 	// Then by key_id and lms_index for consistent ordering
