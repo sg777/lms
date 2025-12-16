@@ -123,8 +123,9 @@ func NewHSMServer(port int, raftEndpoints []string, blockchainConfig *Blockchain
 
 // GenerateKeyRequest is the request to generate a new LMS key
 type GenerateKeyRequest struct {
-	KeyID  string `json:"key_id,omitempty"`  // Optional, server generates if not provided
-	UserID string `json:"user_id,omitempty"` // User ID from JWT token (added by explorer proxy)
+	KeyID    string `json:"key_id,omitempty"`    // Optional, server generates if not provided
+	UserID   string `json:"user_id,omitempty"`  // User ID from JWT token (added by explorer proxy)
+	Username string `json:"username,omitempty"` // Username (used for key ID generation)
 }
 
 // GenerateKeyResponse is the response from generating a key
@@ -144,26 +145,28 @@ type ListKeysResponse struct {
 }
 
 // generateKey generates a new LMS key using the LMS wrapper
-func (s *HSMServer) generateKey(keyID string, userID string) (*LMSKey, error) {
+func (s *HSMServer) generateKey(keyID string, userID string, username string) (*LMSKey, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If key_id not provided, generate one
-	// Find the maximum key number for this user to avoid ID reuse after deletion
+	// If key_id not provided, generate one using username directly
+	// Format: {username}_{number} (e.g., s1_1, s1_2)
 	if keyID == "" {
 		maxKeyNum := 0
 		keyPrefix := ""
-		if userID != "" {
+		if username != "" {
+			keyPrefix = fmt.Sprintf("%s_", username)
+		} else if userID != "" {
+			// Fallback to userID if username not provided (backward compatibility)
 			keyPrefix = fmt.Sprintf("user_%s_key_", userID)
 		} else {
 			keyPrefix = "lms_key_"
 		}
 
 		// Find maximum key number by checking existing keys
-		// Use string prefix matching instead of fmt.Sscanf for reliability
 		for existingKeyID := range s.keys {
-			if userID != "" {
-				// For user keys, only check keys belonging to this user
+			if username != "" {
+				// For username-based keys, only check keys belonging to this user
 				if existingKey, exists := s.keys[existingKeyID]; exists && existingKey.UserID == userID {
 					if strings.HasPrefix(existingKeyID, keyPrefix) {
 						// Extract number after prefix
@@ -176,11 +179,23 @@ func (s *HSMServer) generateKey(keyID string, userID string) (*LMSKey, error) {
 						}
 					}
 				}
+			} else if userID != "" {
+				// For userID-based keys (backward compatibility)
+				if existingKey, exists := s.keys[existingKeyID]; exists && existingKey.UserID == userID {
+					if strings.HasPrefix(existingKeyID, keyPrefix) {
+						suffix := existingKeyID[len(keyPrefix):]
+						var num int
+						if _, err := fmt.Sscanf(suffix, "%d", &num); err == nil {
+							if num > maxKeyNum {
+								maxKeyNum = num
+							}
+						}
+					}
+				}
 			} else {
-				// For non-user keys, check all keys without userID
+				// For non-user keys
 				if existingKey, exists := s.keys[existingKeyID]; exists && existingKey.UserID == "" {
 					if strings.HasPrefix(existingKeyID, keyPrefix) {
-						// Extract number after prefix
 						suffix := existingKeyID[len(keyPrefix):]
 						var num int
 						if _, err := fmt.Sscanf(suffix, "%d", &num); err == nil {
@@ -194,7 +209,9 @@ func (s *HSMServer) generateKey(keyID string, userID string) (*LMSKey, error) {
 		}
 
 		// Generate new key ID with next number
-		if userID != "" {
+		if username != "" {
+			keyID = fmt.Sprintf("%s_%d", username, maxKeyNum+1)
+		} else if userID != "" {
 			keyID = fmt.Sprintf("user_%s_key_%d", userID, maxKeyNum+1)
 		} else {
 			keyID = fmt.Sprintf("lms_key_%d", maxKeyNum+1)
@@ -339,8 +356,9 @@ func (s *HSMServer) handleGenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user_id from request (set by explorer proxy) or from JWT token
+	// Get user_id and username from request (set by explorer proxy) or from JWT token
 	userID := req.UserID
+	username := req.Username
 	if userID == "" {
 		// Try to extract from JWT token for backward compatibility
 		if tokenUserID, err := getUserIdFromRequest(r); err == nil {
@@ -348,7 +366,7 @@ func (s *HSMServer) handleGenerateKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	key, err := s.generateKey(req.KeyID, userID)
+	key, err := s.generateKey(req.KeyID, userID, username)
 	if err != nil {
 		response := GenerateKeyResponse{
 			Success: false,

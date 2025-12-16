@@ -85,8 +85,9 @@ func (s *ExplorerServer) handleGenerateKey(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Add user_id to request
+	// Add user_id and username to request
 	reqBody["user_id"] = claims.UserID
+	reqBody["username"] = claims.Username
 
 	// Forward request to HSM server
 	jsonData, _ := json.Marshal(reqBody)
