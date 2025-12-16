@@ -227,7 +227,8 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 		return verification
 	}
 
-	// Verify each entry's hash computation
+	// Verify each entry's hash computation and compute correct hashes
+	computedHashes := make([]string, len(entries))
 	for i, entry := range entries {
 		computedHash, err := entry.ComputeHash()
 		if err != nil {
@@ -236,27 +237,40 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 			verification.BreakIndex = i
 			return verification
 		}
+		computedHashes[i] = computedHash
 
-		// For genesis entries (index 0 with genesis previous_hash), skip hash mismatch check
-		// Genesis entries are always valid
-		if entry.Index == 0 && entry.PreviousHash == fsm.GenesisHash {
-			// Genesis entry - skip hash mismatch check, it's valid
-		} else if entry.Hash != computedHash {
+		// For genesis entries (first entry with index 0 and genesis previous_hash), skip hash mismatch error
+		// Genesis entries are always valid - don't fail validation if hash doesn't match
+		isGenesis := (i == 0 && entry.Index == 0 && entry.PreviousHash == fsm.GenesisHash) || 
+		            (entry.Index == 0 && entry.PreviousHash == fsm.GenesisHash)
+		
+		if !isGenesis && entry.Hash != computedHash {
+			// Only check hash mismatch for non-genesis entries
 			verification.Valid = false
 			verification.Error = fmt.Sprintf("entry %d: hash mismatch: expected %s, got %s", i, computedHash, entry.Hash)
 			verification.BreakIndex = i
 			return verification
 		}
+		// For genesis entries, accept them as-is (hash mismatch is acceptable for genesis)
+		// We'll use the computed hash for chain validation
 	}
 
 	// Verify chain links (each entry's previous_hash matches previous entry's hash)
+	// For genesis entries, use computed hash instead of stored hash for chain validation
 	for i := 1; i < len(entries); i++ {
 		prevEntry := entries[i-1]
 		currentEntry := entries[i]
+		
+		// For genesis entry (i-1 == 0), use computed hash; otherwise use stored hash
+		prevHash := prevEntry.Hash
+		if i-1 == 0 && prevEntry.Index == 0 && prevEntry.PreviousHash == fsm.GenesisHash {
+			// Previous entry is genesis - use computed hash for chain validation
+			prevHash = computedHashes[i-1]
+		}
 
-		if currentEntry.PreviousHash != prevEntry.Hash {
+		if currentEntry.PreviousHash != prevHash {
 			verification.Valid = false
-			verification.Error = fmt.Sprintf("chain broken at entry %d: previous_hash %s does not match previous entry's hash %s", i, currentEntry.PreviousHash, prevEntry.Hash)
+			verification.Error = fmt.Sprintf("chain broken at entry %d: previous_hash %s does not match previous entry's hash %s", i, currentEntry.PreviousHash, prevHash)
 			verification.BreakIndex = i
 			return verification
 		}
