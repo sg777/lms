@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -319,11 +320,25 @@ func (s *ExplorerServer) getLatestIndexFromRaft(keyID string) (uint64, string, b
 
 							// Get pubkey_hash
 							pubkeyHash := ""
-							if ph, ok := entryMap["pubkey_hash"].(string); ok {
-								pubkeyHash = ph
-							} else if publicKey, ok := entryMap["public_key"].(string); ok {
-								// Compute pubkey_hash from public_key
-								hash := sha256.Sum256([]byte(publicKey))
+							if ph, ok := entryMap["pubkey_hash"].(string); ok && ph != "" {
+								// pubkey_hash from Raft is stored in base64 format
+								// Convert to hex for blockchain operations
+								pubkeyHashBytes, err := base64.StdEncoding.DecodeString(ph)
+								if err == nil {
+									pubkeyHash = fmt.Sprintf("%x", pubkeyHashBytes)
+								} else {
+									// If decoding fails, try using it as-is (might already be hex)
+									pubkeyHash = ph
+								}
+							} else if publicKey, ok := entryMap["public_key"].(string); ok && publicKey != "" {
+								// Compute pubkey_hash from public_key (decode base64 first if needed)
+								var pubKeyBytes []byte
+								if decoded, err := base64.StdEncoding.DecodeString(publicKey); err == nil {
+									pubKeyBytes = decoded
+								} else {
+									pubKeyBytes = []byte(publicKey)
+								}
+								hash := sha256.Sum256(pubKeyBytes)
 								pubkeyHash = fmt.Sprintf("%x", hash)
 							}
 

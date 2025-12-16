@@ -106,8 +106,13 @@ func (s *HSMServer) queryRaftByPubkeyHash(pubkeyHash string) (uint64, string, bo
 // recordType: Record type - "create" (index 0), "sign" (next index), "sync" (sync to index), "delete" (end lifecycle)
 func (s *HSMServer) commitIndexToRaft(keyID string, index uint64, previousHash string, lmsPublicKey []byte, fundingAddress string, blockchainEnabled bool, recordType string) error {
 	// Compute pubkey_hash from LMS public key (Phase B: primary identifier)
-	pubkeyHash := fsm.ComputePubkeyHash(lmsPublicKey)
-	pubkeyHashHex := fmt.Sprintf("%x", pubkeyHash)
+	pubkeyHash := fsm.ComputePubkeyHash(lmsPublicKey) // Returns base64 string
+	// Decode base64 to get raw bytes, then format as hex for API calls
+	pubkeyHashBytes, err := base64.StdEncoding.DecodeString(pubkeyHash)
+	if err != nil {
+		return fmt.Errorf("failed to decode pubkey_hash: %v", err)
+	}
+	pubkeyHashHex := fmt.Sprintf("%x", pubkeyHashBytes)
 
 	// Create data to sign: key_id:index (signature format unchanged for compatibility)
 	data := fmt.Sprintf("%s:%d", keyID, index)
@@ -370,8 +375,20 @@ func (s *HSMServer) handleSign(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Compute pubkey_hash from LMS public key (Phase B)
-	pubkeyHash := fsm.ComputePubkeyHash(lmsKey.PublicKey)
-	pubkeyHashHex := fmt.Sprintf("%x", pubkeyHash)
+	pubkeyHash := fsm.ComputePubkeyHash(lmsKey.PublicKey) // Returns base64 string
+	// Decode base64 to get raw bytes, then format as hex for API calls
+	pubkeyHashBytes, err := base64.StdEncoding.DecodeString(pubkeyHash)
+	if err != nil {
+		response := SignResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to decode pubkey_hash: %v", err),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	pubkeyHashHex := fmt.Sprintf("%x", pubkeyHashBytes)
 
 	// Step 2: Consistency check - fetch last index from both Raft and blockchain (if enabled)
 	raftIndex, raftHash, raftExists, raftErr := s.queryRaftByPubkeyHash(pubkeyHash)
