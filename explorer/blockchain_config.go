@@ -19,20 +19,22 @@ func verusIdentityName() string {
 	return "sg777z.chips.vrsc@"
 }
 
-// getBootstrapBlockHeight returns the bootstrap block height from environment variable
+// getBootstrapBlockHeight returns the bootstrap block height
 // Commits before this block height will be ignored
-// Set LMS_BOOTSTRAP_BLOCK_HEIGHT environment variable to enable filtering
-// Returns 0 if not set (no filtering)
+// Currently hardcoded to 2737418 - can be overridden by LMS_BOOTSTRAP_BLOCK_HEIGHT environment variable
 func getBootstrapBlockHeight() int64 {
+	// Check environment variable first (allows override)
 	envVal := os.Getenv("LMS_BOOTSTRAP_BLOCK_HEIGHT")
-	if envVal == "" {
-		return 0 // No filtering
+	if envVal != "" {
+		height, err := strconv.ParseInt(envVal, 10, 64)
+		if err == nil {
+			return height
+		}
 	}
-	height, err := strconv.ParseInt(envVal, 10, 64)
-	if err != nil {
-		return 0 // Invalid value, no filtering
-	}
-	return height
+	
+	// Hardcoded default bootstrap block height
+	// TODO: Consider implementing blockchain marker approach later
+	return 2737418
 }
 
 // Convenience helper to build a Verus client
