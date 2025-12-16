@@ -91,6 +91,9 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 	}
 
 	// Enrich commits with key_id labels from Raft and actual block heights from history
+	// Cache key_id label lookups to avoid redundant queries for the same canonical key ID
+	keyIDLabelCache := make(map[string]string) // normalizedKeyID -> key_id_label
+	
 	enrichedCommits := make([]map[string]interface{}, len(commits))
 	matchedCount := 0
 	for i, commit := range commits {
@@ -109,22 +112,26 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 			log.Printf("[DEBUG] No history match for: keyID=%s, lmsIndex=%s, using current blockHeight=%d", commit.KeyID, commit.LMSIndex, commit.BlockHeight)
 		}
 
+		// Get key_id label from cache or lookup
+		// commit.KeyID is the normalized VDXF ID from Verus (canonical key ID)
+		// This should be the same for all commits of the same key (create, sign, sync, delete)
+		keyIDLabel := ""
+		if cached, exists := keyIDLabelCache[commit.KeyID]; exists {
+			keyIDLabel = cached
+		} else {
+			// Lookup key_id label from Raft by matching normalized VDXF ID
+			keyIDLabel = s.lookupKeyIDLabelFromRaft(commit.KeyID)
+			keyIDLabelCache[commit.KeyID] = keyIDLabel // Cache result (even if empty)
+		}
+
 		enrichedCommit := map[string]interface{}{
-			"key_id":       commit.KeyID,
+			"key_id":       commit.KeyID, // Canonical key ID (normalized VDXF ID) - same for all commits of this key
 			"pubkey_hash":  commit.PubkeyHash,
 			"lms_index":    commit.LMSIndex,
 			"block_height": blockHeight,
 			"txid":         txid,
 			"timestamp":    commit.Timestamp,
-			"key_id_label": "", // Will be populated from Raft
-		}
-
-		// Try to get key_id label from Raft
-		// commit.KeyID is the normalized VDXF ID from Verus
-		// We need to match it by querying all keys from Raft and computing their normalized IDs
-		keyIDLabel := s.lookupKeyIDLabelFromRaft(commit.KeyID)
-		if keyIDLabel != "" {
-			enrichedCommit["key_id_label"] = keyIDLabel
+			"key_id_label": keyIDLabel, // User-friendly key_id label from Raft
 		}
 
 		enrichedCommits[i] = enrichedCommit
