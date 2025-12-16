@@ -105,12 +105,12 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 	// Enrich commits with key_id labels from Raft and actual block heights from history
 	// Cache key_id label lookups to avoid redundant queries for the same canonical key ID
 	keyIDLabelCache := make(map[string]string) // normalizedKeyID -> key_id_label
-	
+
 	// Filter commits by bootstrap block height if configured
 	if bootstrapHeight > 0 {
 		log.Printf("[INFO] Will filter commits below bootstrap block height %d", bootstrapHeight)
 	}
-	
+
 	enrichedCommits := make([]map[string]interface{}, 0, len(commits))
 	matchedCount := 0
 	filteredCount := 0
@@ -161,7 +161,7 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 
 		enrichedCommits = append(enrichedCommits, enrichedCommit)
 	}
-	
+
 	log.Printf("[INFO] Matched %d out of %d commits with historical block heights", matchedCount, len(commits))
 	if bootstrapHeight > 0 {
 		log.Printf("[INFO] Filtered out %d commits below bootstrap block height %d", filteredCount, bootstrapHeight)

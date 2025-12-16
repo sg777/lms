@@ -31,7 +31,7 @@ func getBootstrapBlockHeight() int64 {
 			return height
 		}
 	}
-	
+
 	// Hardcoded default bootstrap block height
 	// TODO: Consider implementing blockchain marker approach later
 	return 2737418
