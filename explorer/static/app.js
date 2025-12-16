@@ -63,10 +63,30 @@ function setupEventListeners() {
     }
     const refreshBlockchainBtn = document.getElementById('refreshBlockchainBtn');
     const closeBlockchainBtn = document.getElementById('closeBlockchainBtn');
+    const currentBlockHeightBtn = document.getElementById('currentBlockHeightBtn');
     if (refreshBlockchainBtn) refreshBlockchainBtn.addEventListener('click', loadBlockchainCommits);
     if (closeBlockchainBtn) closeBlockchainBtn.addEventListener('click', () => {
         document.getElementById('blockchainSection').style.display = 'none';
     });
+    if (currentBlockHeightBtn) {
+        currentBlockHeightBtn.addEventListener('click', async () => {
+            // Fetch current block height
+            try {
+                const response = await fetch(`${API_BASE}/api/blockchain`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.block_height !== undefined) {
+                        const heightText = document.getElementById('currentBlockHeightText');
+                        if (heightText) {
+                            heightText.textContent = `Height: ${data.block_height}`;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching block height:', error);
+            }
+        });
+    }
     
     // Authentication
     const loginBtn = document.getElementById('loginBtn');
@@ -499,6 +519,13 @@ async function loadBlockchainCommits() {
         }
         
         console.log('Displaying', data.commits.length, 'commits');
+        
+        // Update current block height button
+        const heightText = document.getElementById('currentBlockHeightText');
+        if (heightText && data.block_height !== undefined) {
+            heightText.textContent = `Height: ${data.block_height}`;
+        }
+        
         displayBlockchainCommits(data, blockchainView);
     } catch (error) {
         blockchainView.innerHTML = `<div class="error">Error loading blockchain commits: ${escapeHtml(error.message)}</div>`;

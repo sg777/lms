@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 )
 
 // handleBlockchain returns all blockchain commits from Verus identity
@@ -49,6 +50,30 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 
 		enrichedCommits[i] = enrichedCommit
 	}
+
+	// Sort commits by block height (descending - highest/newest first)
+	// Then by key_id and lms_index for consistent ordering
+	sort.Slice(enrichedCommits, func(i, j int) bool {
+		heightI, _ := enrichedCommits[i]["block_height"].(int64)
+		heightJ, _ := enrichedCommits[j]["block_height"].(int64)
+		keyIDI, _ := enrichedCommits[i]["key_id"].(string)
+		keyIDJ, _ := enrichedCommits[j]["key_id"].(string)
+		lmsIndexI, _ := enrichedCommits[i]["lms_index"].(string)
+		lmsIndexJ, _ := enrichedCommits[j]["lms_index"].(string)
+
+		// Primary sort: block height (descending - highest first)
+		if heightJ != heightI {
+			return heightJ < heightI // Descending order
+		}
+
+		// Secondary sort: key_id (ascending)
+		if keyIDJ != keyIDI {
+			return keyIDI < keyIDJ // Ascending order
+		}
+
+		// Tertiary sort: lms_index (descending - highest first)
+		return lmsIndexJ < lmsIndexI // Descending order
+	})
 
 	// Get blockchain info
 	height, err := client.GetBlockHeight()
