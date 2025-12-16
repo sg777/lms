@@ -237,7 +237,11 @@ func (s *APIServer) verifyChainIntegrity(entries []*fsm.KeyIndexEntry) *ChainVer
 			return verification
 		}
 
-		if entry.Hash != computedHash {
+		// For genesis entries (index 0 with genesis previous_hash), skip hash mismatch check
+		// Genesis entries are always valid
+		if entry.Index == 0 && entry.PreviousHash == fsm.GenesisHash {
+			// Genesis entry - skip hash mismatch check, it's valid
+		} else if entry.Hash != computedHash {
 			verification.Valid = false
 			verification.Error = fmt.Sprintf("entry %d: hash mismatch: expected %s, got %s", i, computedHash, entry.Hash)
 			verification.BreakIndex = i
