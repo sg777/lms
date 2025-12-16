@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -229,20 +230,35 @@ func (s *ExplorerServer) lookupKeyIDLabelFromRaft(normalizedKeyID string) string
 					if chain, ok := chainResp["chain"].([]interface{}); ok && len(chain) > 0 {
 						if firstEntry, ok := chain[0].(map[string]interface{}); ok {
 							// Try to get pubkey_hash directly from entry
-							var pubkeyHash string
+							var pubkeyHashHex string
 							if ph, ok := firstEntry["pubkey_hash"].(string); ok && ph != "" {
-								pubkeyHash = ph
+								// pubkey_hash from Raft is in base64 format, convert to hex
+								pubkeyHashBytes, err := base64.StdEncoding.DecodeString(ph)
+								if err == nil {
+									pubkeyHashHex = fmt.Sprintf("%x", pubkeyHashBytes)
+								} else {
+									// If decoding fails, try using as-is (might already be hex)
+									pubkeyHashHex = ph
+								}
 							} else if publicKey, ok := firstEntry["public_key"].(string); ok && publicKey != "" {
-								// Compute pubkey_hash from public_key (SHA-256)
-								hash := sha256.Sum256([]byte(publicKey))
-								pubkeyHash = fmt.Sprintf("%x", hash)
+								// Compute pubkey_hash from public_key
+								// public_key is base64 encoded EC public key, decode it first
+								var pubKeyBytes []byte
+								if decoded, err := base64.StdEncoding.DecodeString(publicKey); err == nil {
+									pubKeyBytes = decoded
+								} else {
+									pubKeyBytes = []byte(publicKey)
+								}
+								hash := sha256.Sum256(pubKeyBytes)
+								pubkeyHashHex = fmt.Sprintf("%x", hash)
 							}
 
-							if pubkeyHash != "" {
-								// Compute normalized VDXF ID for this pubkey_hash
+							if pubkeyHashHex != "" {
+								// Compute normalized VDXF ID for this pubkey_hash (hex format)
 								client := newVerusClientFromEnv()
-								computedNormalized, err := client.GetVDXFID(pubkeyHash)
+								computedNormalized, err := client.GetVDXFID(pubkeyHashHex)
 								if err == nil && computedNormalized == normalizedKeyID {
+									log.Printf("[DEBUG] Matched normalized ID %s to key_id label: %s", normalizedKeyID, keyID)
 									return keyID
 								}
 							}
