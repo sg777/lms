@@ -43,6 +43,9 @@ temp/
 # HSM server database
 hsm-data/
 
+# Explorer databases
+explorer/*.db
+
 # Binaries
 hsm-client
 hsm-server
