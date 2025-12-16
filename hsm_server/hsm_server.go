@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -159,24 +160,33 @@ func (s *HSMServer) generateKey(keyID string, userID string) (*LMSKey, error) {
 		}
 
 		// Find maximum key number by checking existing keys
+		// Use string prefix matching instead of fmt.Sscanf for reliability
 		for existingKeyID := range s.keys {
 			if userID != "" {
 				// For user keys, only check keys belonging to this user
 				if existingKey, exists := s.keys[existingKeyID]; exists && existingKey.UserID == userID {
-					var num int
-					if _, err := fmt.Sscanf(existingKeyID, keyPrefix+"%d", &num); err == nil {
-						if num > maxKeyNum {
-							maxKeyNum = num
+					if strings.HasPrefix(existingKeyID, keyPrefix) {
+						// Extract number after prefix
+						suffix := existingKeyID[len(keyPrefix):]
+						var num int
+						if _, err := fmt.Sscanf(suffix, "%d", &num); err == nil {
+							if num > maxKeyNum {
+								maxKeyNum = num
+							}
 						}
 					}
 				}
 			} else {
 				// For non-user keys, check all keys without userID
 				if existingKey, exists := s.keys[existingKeyID]; exists && existingKey.UserID == "" {
-					var num int
-					if _, err := fmt.Sscanf(existingKeyID, keyPrefix+"%d", &num); err == nil {
-						if num > maxKeyNum {
-							maxKeyNum = num
+					if strings.HasPrefix(existingKeyID, keyPrefix) {
+						// Extract number after prefix
+						suffix := existingKeyID[len(keyPrefix):]
+						var num int
+						if _, err := fmt.Sscanf(suffix, "%d", &num); err == nil {
+							if num > maxKeyNum {
+								maxKeyNum = num
+							}
 						}
 					}
 				}
