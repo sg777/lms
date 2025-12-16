@@ -20,22 +20,77 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 	client := newVerusClientFromEnv()
 	identityName := verusIdentityName()
 
-	// Get all commits
+	// Get all commits from current identity state
 	commits, err := client.QueryAttestationCommits(identityName, "")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to query blockchain: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Enrich commits with key_id labels from Raft
+	// Get identity history to find actual block heights for each commit
+	// This is needed because QueryAttestationCommits only returns current identity block height
+	history, err := client.GetIdentityHistory(identityName, 0, 0)
+	if err != nil {
+		// If history fails, fall back to current state (with current block height)
+		history = nil
+	}
+
+	// Build a map of (keyID, lmsIndex) -> (blockHeight, txID) from history
+	// We need to find when each lms_index was first committed for each keyID
+	historyMap := make(map[string]int64) // key: "keyID:lmsIndex", value: blockHeight (first commit)
+	txidMap := make(map[string]string)   // key: "keyID:lmsIndex", value: txID (first commit)
+	if history != nil {
+		const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
+		// Process history in reverse chronological order to find the first commit of each lms_index
+		// History is typically ordered newest to oldest, but we'll process from oldest to newest
+		// to catch the first time each lms_index appears
+		for i := len(history.History) - 1; i >= 0; i-- {
+			entry := history.History[i]
+			if entry.Identity.ContentMultiMap == nil {
+				continue
+			}
+			// For each key_id in this historical entry
+			for keyID, entries := range entry.Identity.ContentMultiMap {
+				if entryList, ok := entries.([]interface{}); ok {
+					for _, item := range entryList {
+						if entryMap, ok := item.(map[string]interface{}); ok {
+							if lmsIndex, ok := entryMap[mapKey].(string); ok {
+								// Create map key: "keyID:lmsIndex"
+								mapKeyStr := fmt.Sprintf("%s:%s", keyID, lmsIndex)
+								// Store the block height if not already stored (first time we see this lms_index)
+								// We process from oldest to newest, so the first entry we find is the commit block
+								if _, exists := historyMap[mapKeyStr]; !exists {
+									historyMap[mapKeyStr] = entry.Height
+									txidMap[mapKeyStr] = entry.Output.TxID
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Enrich commits with key_id labels from Raft and actual block heights from history
 	enrichedCommits := make([]map[string]interface{}, len(commits))
 	for i, commit := range commits {
+		// Try to get actual block height from history
+		blockHeight := commit.BlockHeight
+		txid := commit.TxID
+		mapKeyStr := fmt.Sprintf("%s:%s", commit.KeyID, commit.LMSIndex)
+		if histHeight, exists := historyMap[mapKeyStr]; exists {
+			blockHeight = histHeight
+			if histTxid, exists := txidMap[mapKeyStr]; exists {
+				txid = histTxid
+			}
+		}
+
 		enrichedCommit := map[string]interface{}{
 			"key_id":       commit.KeyID,
 			"pubkey_hash":  commit.PubkeyHash,
 			"lms_index":    commit.LMSIndex,
-			"block_height": commit.BlockHeight,
-			"txid":         commit.TxID,
+			"block_height": blockHeight,
+			"txid":         txid,
 			"timestamp":    commit.Timestamp,
 			"key_id_label": "", // Will be populated from Raft
 		}

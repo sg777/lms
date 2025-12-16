@@ -75,15 +75,19 @@ function setupEventListeners() {
                 const response = await fetch(`${API_BASE}/api/blockchain`);
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.success && data.block_height !== undefined) {
-                        const heightText = document.getElementById('currentBlockHeightText');
-                        if (heightText) {
-                            heightText.textContent = `Height: ${data.block_height}`;
-                        }
+                    const heightText = document.getElementById('currentBlockHeightText');
+                    if (heightText && data.success && data.block_height !== undefined && data.block_height !== null) {
+                        heightText.textContent = `${data.block_height}`;
+                    } else if (heightText) {
+                        heightText.textContent = 'Current Height';
                     }
                 }
             } catch (error) {
                 console.error('Error fetching block height:', error);
+                const heightText = document.getElementById('currentBlockHeightText');
+                if (heightText) {
+                    heightText.textContent = 'Error';
+                }
             }
         });
     }
@@ -520,10 +524,12 @@ async function loadBlockchainCommits() {
         
         console.log('Displaying', data.commits.length, 'commits');
         
-        // Update current block height button
+        // Update current block height button with actual number
         const heightText = document.getElementById('currentBlockHeightText');
-        if (heightText && data.block_height !== undefined) {
-            heightText.textContent = `Height: ${data.block_height}`;
+        if (heightText && data.block_height !== undefined && data.block_height !== null) {
+            heightText.textContent = `${data.block_height}`;
+        } else if (heightText) {
+            heightText.textContent = 'Current Height';
         }
         
         displayBlockchainCommits(data, blockchainView);
