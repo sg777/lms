@@ -21,6 +21,7 @@ go.work
 
 # Raft data directories
 raft-data-*
+raft-data/
 
 # IDE
 .idea/

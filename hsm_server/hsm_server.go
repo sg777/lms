@@ -148,11 +148,46 @@ func (s *HSMServer) generateKey(keyID string, userID string) (*LMSKey, error) {
 	defer s.mu.Unlock()
 
 	// If key_id not provided, generate one
+	// Find the maximum key number for this user to avoid ID reuse after deletion
 	if keyID == "" {
+		maxKeyNum := 0
+		keyPrefix := ""
 		if userID != "" {
-			keyID = fmt.Sprintf("user_%s_key_%d", userID, len(s.keys)+1)
+			keyPrefix = fmt.Sprintf("user_%s_key_", userID)
 		} else {
-			keyID = fmt.Sprintf("lms_key_%d", len(s.keys)+1)
+			keyPrefix = "lms_key_"
+		}
+
+		// Find maximum key number by checking existing keys
+		for existingKeyID := range s.keys {
+			if userID != "" {
+				// For user keys, only check keys belonging to this user
+				if existingKey, exists := s.keys[existingKeyID]; exists && existingKey.UserID == userID {
+					var num int
+					if _, err := fmt.Sscanf(existingKeyID, keyPrefix+"%d", &num); err == nil {
+						if num > maxKeyNum {
+							maxKeyNum = num
+						}
+					}
+				}
+			} else {
+				// For non-user keys, check all keys without userID
+				if existingKey, exists := s.keys[existingKeyID]; exists && existingKey.UserID == "" {
+					var num int
+					if _, err := fmt.Sscanf(existingKeyID, keyPrefix+"%d", &num); err == nil {
+						if num > maxKeyNum {
+							maxKeyNum = num
+						}
+					}
+				}
+			}
+		}
+
+		// Generate new key ID with next number
+		if userID != "" {
+			keyID = fmt.Sprintf("user_%s_key_%d", userID, maxKeyNum+1)
+		} else {
+			keyID = fmt.Sprintf("lms_key_%d", maxKeyNum+1)
 		}
 	}
 

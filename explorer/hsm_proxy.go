@@ -461,10 +461,35 @@ func (s *ExplorerServer) handleDeleteKey(w http.ResponseWriter, r *http.Request)
 	}
 	defer resp.Body.Close()
 
-	// Copy response
+	// Read response to check if deletion was successful
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read response: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// If deletion was successful, clean up blockchain setting
+	if resp.StatusCode == http.StatusOK {
+		var deleteResp map[string]interface{}
+		if err := json.Unmarshal(respBody, &deleteResp); err == nil {
+			if success, ok := deleteResp["success"].(bool); ok && success {
+				// Delete blockchain setting for this key
+				if keyID != "" {
+					if err := s.keyBlockchainDB.DeleteSetting(userID, keyID); err != nil {
+						log.Printf("[WARNING] Failed to delete blockchain setting for key %s: %v", keyID, err)
+						// Don't fail the request - key is already deleted
+					} else {
+						log.Printf("[INFO] Deleted blockchain setting for key %s", keyID)
+					}
+				}
+			}
+		}
+	}
+
+	// Copy response to client
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	w.Write(respBody)
 }
 
 // handleVerify verifies a signature for the authenticated user

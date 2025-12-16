@@ -188,6 +188,60 @@ func (kdb *KeyBlockchainDB) GetSettingsForUser(userID string) (map[string]*KeyBl
 	return settings, err
 }
 
+// DeleteSetting removes blockchain setting for a key
+func (kdb *KeyBlockchainDB) DeleteSetting(userID, keyID string) error {
+	return kdb.db.Update(func(tx *bolt.Tx) error {
+		settingsBucket := tx.Bucket([]byte("key_blockchain_settings"))
+		if settingsBucket == nil {
+			return fmt.Errorf("key_blockchain_settings bucket not found")
+		}
+		userKeyIndex := tx.Bucket([]byte("user_key_index"))
+		if userKeyIndex == nil {
+			return fmt.Errorf("user_key_index bucket not found")
+		}
+
+		// Delete setting
+		key := kdb.GetSettingKey(userID, keyID)
+		if err := settingsBucket.Delete([]byte(key)); err != nil {
+			return fmt.Errorf("failed to delete setting: %v", err)
+		}
+
+		// Remove keyID from user key index
+		userKey := []byte(userID)
+		existingKeysData := userKeyIndex.Get(userKey)
+		if existingKeysData != nil {
+			var keyIDs []string
+			if err := json.Unmarshal(existingKeysData, &keyIDs); err == nil {
+				// Remove keyID from list
+				newKeyIDs := make([]string, 0, len(keyIDs))
+				for _, id := range keyIDs {
+					if id != keyID {
+						newKeyIDs = append(newKeyIDs, id)
+					}
+				}
+				// Update or delete index entry
+				if len(newKeyIDs) == 0 {
+					// No keys left for this user, remove index entry
+					if err := userKeyIndex.Delete(userKey); err != nil {
+						return fmt.Errorf("failed to delete user key index: %v", err)
+					}
+				} else {
+					// Update with remaining keys
+					keyIDsData, err := json.Marshal(newKeyIDs)
+					if err != nil {
+						return fmt.Errorf("failed to marshal key IDs: %v", err)
+					}
+					if err := userKeyIndex.Put(userKey, keyIDsData); err != nil {
+						return fmt.Errorf("failed to update user key index: %v", err)
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
 // Close closes the database
 func (kdb *KeyBlockchainDB) Close() error {
 	return kdb.db.Close()
