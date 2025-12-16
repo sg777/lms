@@ -30,6 +30,7 @@ type ExplorerServer struct {
 // CommitInfo represents a single commit entry for display
 type CommitInfo struct {
 	KeyID        string    `json:"key_id"`
+	PubkeyHash   string    `json:"pubkey_hash"`
 	Index        uint64    `json:"index"`
 	Hash         string    `json:"hash"`
 	PreviousHash string    `json:"previous_hash"`
@@ -40,6 +41,7 @@ type CommitInfo struct {
 // ChainEntry represents a chain entry with verification status
 type ChainEntry struct {
 	KeyID        string `json:"key_id"`
+	PubkeyHash   string `json:"pubkey_hash"`
 	Index        uint64 `json:"index"`
 	PreviousHash string `json:"previous_hash"`
 	Hash         string `json:"hash"`

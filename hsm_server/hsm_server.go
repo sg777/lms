@@ -123,7 +123,7 @@ func NewHSMServer(port int, raftEndpoints []string, blockchainConfig *Blockchain
 
 // GenerateKeyRequest is the request to generate a new LMS key
 type GenerateKeyRequest struct {
-	KeyID    string `json:"key_id,omitempty"`    // Optional, server generates if not provided
+	KeyID    string `json:"key_id,omitempty"`   // Optional, server generates if not provided
 	UserID   string `json:"user_id,omitempty"`  // User ID from JWT token (added by explorer proxy)
 	Username string `json:"username,omitempty"` // Username (used for key ID generation)
 }

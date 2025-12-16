@@ -207,16 +207,18 @@ async function loadRecentCommits(silent = false) {
             container.innerHTML = '<div class="loading">Loading recent commits...</div>';
         }
 
-        let html = '<table><thead><tr><th>Key ID</th><th>Index</th><th>Hash</th><th>Previous Hash</th></tr></thead><tbody>';
+        let html = '<table><thead><tr><th>Key ID</th><th>Pubkey Hash</th><th>Index</th><th>Hash</th><th>Previous Hash</th></tr></thead><tbody>';
         
         data.commits.forEach(commit => {
             const hashShort = commit.hash ? truncateHash(commit.hash, 20) : '-';
             const prevHashShort = commit.previous_hash ? truncateHash(commit.previous_hash, 20) : '-';
+            const pubkeyHashShort = commit.pubkey_hash ? truncateHash(commit.pubkey_hash, 20) : '-';
             
             const keyIdEscaped = escapeHtml(commit.key_id).replace(/'/g, "\\'");
             html += `
                 <tr onclick="viewChain('${keyIdEscaped}')">
                     <td><strong>${escapeHtml(commit.key_id)}</strong></td>
+                    <td class="hash-cell" title="${commit.pubkey_hash || ''}">${pubkeyHashShort}</td>
                     <td>${commit.index}</td>
                     <td class="hash-cell" title="${commit.hash || ''}">${hashShort}</td>
                     <td class="hash-cell" title="${commit.previous_hash || ''}">${prevHashShort}</td>

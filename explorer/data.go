@@ -16,7 +16,7 @@ func (s *ExplorerServer) getRecentCommits(limit int) ([]CommitInfo, error) {
 	if time.Since(s.cacheLastUpdated) < s.cacheTTL && len(s.recentCommits) > 0 {
 		commits := s.recentCommits
 		s.cacheMu.RUnlock()
-		
+
 		// Return limited results
 		if limit < len(commits) {
 			return commits[:limit], nil
@@ -27,7 +27,7 @@ func (s *ExplorerServer) getRecentCommits(limit int) ([]CommitInfo, error) {
 
 	// Fetch from Raft cluster
 	allCommits := make([]CommitInfo, 0)
-	
+
 	// Get all keys first
 	keys, err := s.getAllKeys()
 	if err != nil {
@@ -44,6 +44,7 @@ func (s *ExplorerServer) getRecentCommits(limit int) ([]CommitInfo, error) {
 		for _, entry := range chain.Entries {
 			commit := CommitInfo{
 				KeyID:        entry.KeyID,
+				PubkeyHash:   entry.PubkeyHash,
 				Index:        entry.Index,
 				Hash:         entry.Hash,
 				PreviousHash: entry.PreviousHash,
@@ -74,7 +75,7 @@ func (s *ExplorerServer) getRecentCommits(limit int) ([]CommitInfo, error) {
 // getAllKeys gets all key IDs from the cluster
 func (s *ExplorerServer) getAllKeys() ([]string, error) {
 	var lastErr error
-	
+
 	// Try the new /keys endpoint first
 	for _, endpoint := range s.raftEndpoints {
 		url := fmt.Sprintf("%s/keys", endpoint)
@@ -232,6 +233,7 @@ func (s *ExplorerServer) getChain(keyID string) (*ChainResponse, error) {
 
 			entry := ChainEntry{
 				KeyID:        getString(entryMap, "key_id"),
+				PubkeyHash:   getString(entryMap, "pubkey_hash"),
 				PreviousHash: getString(entryMap, "previous_hash"),
 				Hash:         getString(entryMap, "hash"),
 				Signature:    getString(entryMap, "signature"),
@@ -337,4 +339,3 @@ func getString(m map[string]interface{}, key string) string {
 	}
 	return ""
 }
-
