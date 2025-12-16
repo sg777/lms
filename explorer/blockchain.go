@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 )
@@ -31,19 +32,22 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 	// This is needed because QueryAttestationCommits only returns current identity block height
 	history, err := client.GetIdentityHistory(identityName, 0, 0)
 	if err != nil {
-		// If history fails, fall back to current state (with current block height)
+		// If history fails, log the error but continue with current state
+		log.Printf("[WARNING] Failed to get identity history: %v. Using current block height for all commits.", err)
 		history = nil
 	}
 
 	// Build a map of (keyID, lmsIndex) -> (blockHeight, txID) from history
 	// We need to find when each lms_index was first committed for each keyID
+	// Process history from OLDEST to NEWEST to capture the first time each lms_index appears
 	historyMap := make(map[string]int64) // key: "keyID:lmsIndex", value: blockHeight (first commit)
 	txidMap := make(map[string]string)   // key: "keyID:lmsIndex", value: txID (first commit)
-	if history != nil {
+	if history != nil && len(history.History) > 0 {
 		const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
-		// Process history in reverse chronological order to find the first commit of each lms_index
-		// History is typically ordered newest to oldest, but we'll process from oldest to newest
-		// to catch the first time each lms_index appears
+		log.Printf("[INFO] Processing %d history entries to find commit block heights", len(history.History))
+		
+		// Process history from OLDEST to NEWEST (reverse order)
+		// This ensures we capture the FIRST time each lms_index appears (its commit block height)
 		for i := len(history.History) - 1; i >= 0; i-- {
 			entry := history.History[i]
 			if entry.Identity.ContentMultiMap == nil {
@@ -58,10 +62,11 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 								// Create map key: "keyID:lmsIndex"
 								mapKeyStr := fmt.Sprintf("%s:%s", keyID, lmsIndex)
 								// Store the block height if not already stored (first time we see this lms_index)
-								// We process from oldest to newest, so the first entry we find is the commit block
+								// Since we process from oldest to newest, the first entry we find is the commit block
 								if _, exists := historyMap[mapKeyStr]; !exists {
 									historyMap[mapKeyStr] = entry.Height
 									txidMap[mapKeyStr] = entry.Output.TxID
+									log.Printf("[DEBUG] Found commit: keyID=%s, lmsIndex=%s, blockHeight=%d, txID=%s", keyID, lmsIndex, entry.Height, entry.Output.TxID)
 								}
 							}
 						}
@@ -69,10 +74,16 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 				}
 			}
 		}
+		log.Printf("[INFO] Built history map with %d entries", len(historyMap))
+	} else if history == nil {
+		log.Printf("[WARNING] Identity history is nil - cannot determine actual commit block heights")
+	} else {
+		log.Printf("[WARNING] Identity history is empty - cannot determine actual commit block heights")
 	}
 
 	// Enrich commits with key_id labels from Raft and actual block heights from history
 	enrichedCommits := make([]map[string]interface{}, len(commits))
+	matchedCount := 0
 	for i, commit := range commits {
 		// Try to get actual block height from history
 		blockHeight := commit.BlockHeight
@@ -80,9 +91,13 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 		mapKeyStr := fmt.Sprintf("%s:%s", commit.KeyID, commit.LMSIndex)
 		if histHeight, exists := historyMap[mapKeyStr]; exists {
 			blockHeight = histHeight
+			matchedCount++
 			if histTxid, exists := txidMap[mapKeyStr]; exists {
 				txid = histTxid
 			}
+			log.Printf("[DEBUG] Matched commit: keyID=%s, lmsIndex=%s, using blockHeight=%d (was %d)", commit.KeyID, commit.LMSIndex, blockHeight, commit.BlockHeight)
+		} else {
+			log.Printf("[DEBUG] No history match for: keyID=%s, lmsIndex=%s, using current blockHeight=%d", commit.KeyID, commit.LMSIndex, commit.BlockHeight)
 		}
 
 		enrichedCommit := map[string]interface{}{
@@ -105,6 +120,8 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 
 		enrichedCommits[i] = enrichedCommit
 	}
+	
+	log.Printf("[INFO] Matched %d out of %d commits with historical block heights", matchedCount, len(commits))
 
 	// Sort commits by block height (descending - highest/newest first)
 	// Then by key_id and lms_index for consistent ordering
