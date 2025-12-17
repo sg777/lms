@@ -34,7 +34,7 @@ func getBootstrapBlockHeight() int64 {
 
 	// Hardcoded default bootstrap block height
 	// TODO: Consider implementing blockchain marker approach later
-	return 2737418
+	return 2742761
 }
 
 // Convenience helper to build a Verus client

@@ -120,7 +120,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 			} else {
 				log.Printf("[BLOCKCHAIN_TOGGLE] Wallet %s balance: %.8f CHIPS", wallet.Address, balance)
 				totalBalance += balance
-				if fundingAddress == "" && balance > 0.0001 {
+				if fundingAddress == "" && balance > 0.0005 {
 					fundingAddress = wallet.Address // Use first wallet with balance
 					log.Printf("[BLOCKCHAIN_TOGGLE] Selected funding address: %s (balance: %.8f CHIPS)", fundingAddress, balance)
 				}
@@ -128,18 +128,20 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		}
 		log.Printf("[BLOCKCHAIN_TOGGLE] Total balance across all wallets: %.8f CHIPS", totalBalance)
 
-		if totalBalance < 0.0001 {
-			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Insufficient balance - total=%.8f CHIPS, required=0.0001 CHIPS", totalBalance)
+		// Minimum balance required: 0.0005 CHIPS (actual fees are typically 0.0004 CHIPS or higher)
+		minBalanceRequired := 0.0005
+		if totalBalance < minBalanceRequired {
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Insufficient balance - total=%.8f CHIPS, required=%.8f CHIPS", totalBalance, minBalanceRequired)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
-				"error":   fmt.Sprintf("Insufficient balance: %.8f CHIPS. Need at least 0.0001 CHIPS for transaction fees.", totalBalance),
+				"error":   fmt.Sprintf("Insufficient balance: %.8f CHIPS. Need at least %.8f CHIPS for transaction fees (actual fees are typically 0.0004 CHIPS or higher).", totalBalance, minBalanceRequired),
 			})
 			return
 		}
 
 		if fundingAddress == "" {
-			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: No wallet with sufficient balance found (totalBalance=%.8f but no wallet > 0.0001)", totalBalance)
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: No wallet with sufficient balance found (totalBalance=%.8f but no wallet > %.8f)", totalBalance, minBalanceRequired)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,

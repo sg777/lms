@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"time"
 )
 
@@ -254,7 +255,9 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 		return "", fmt.Errorf("failed to get current identity: %v", err)
 	}
 
-	// Prepare the identity update JSON
+	// Prepare the identity update JSON with ONLY the new entry
+	// Each updateidentity call creates a new blockchain transaction (append-only)
+	// History is preserved via getidentityhistory API
 	identityUpdate := Identity{
 		Name:            current.Identity.Name,
 		Parent:          current.Identity.Parent,
@@ -262,32 +265,19 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 		ContentMultiMap: make(map[string]interface{}),
 	}
 
-	// Preserve existing contentmultimap if it exists
-	if current.Identity.ContentMultiMap != nil {
-		existingKeyCount := len(current.Identity.ContentMultiMap)
-		log.Printf("[UPDATE_IDENTITY] Preserving %d existing entries in contentmultimap for identity %s", existingKeyCount, identityName)
-		for k, v := range current.Identity.ContentMultiMap {
-			identityUpdate.ContentMultiMap[k] = v
-		}
-		log.Printf("[UPDATE_IDENTITY] Adding/updating entry for keyID=%s (total entries after update: %d)", keyID, len(identityUpdate.ContentMultiMap))
-	}
-
-	// Add or update the key_id entry (REPLACE latest only, not append history)
+	// Add only the new entry for this specific commit
 	// Format: "key_id": [{"iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c": "<lms_index>"}]
-	// The "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c" is a constant identifier
-	// Note: We replace the entire array with just the new index (Option B)
-	// History is preserved in blockchain via getidentityhistory API
 	const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
-
-	// Replace the key_id entry with just the new index (not appending to history)
-	// History is available via GetIdentityHistory() method
+	
 	newEntry := map[string]string{
 		mapKey: lmsIndex,
 	}
 	keyEntries := []map[string]string{newEntry}
-
-	// Update the contentmultimap (replaces previous value for this key_id)
+	
+	// Set only this entry - blockchain is append-only, history is preserved
 	identityUpdate.ContentMultiMap[keyID] = keyEntries
+	
+	log.Printf("[UPDATE_IDENTITY] Committing single entry: keyID=%s, lmsIndex=%s (blockchain append-only)", keyID, lmsIndex)
 
 	// Convert identityUpdate to map[string]interface{} for RPC call
 	// Verus RPC expects the identity as an object, not a JSON string
@@ -338,61 +328,66 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 	return txID, nil
 }
 
-// QueryAttestationCommits queries identity's contentmultimap for LMS index commits
+// QueryAttestationCommits queries identity history for ALL LMS index commits
 // identityName: e.g., "sg777z.chips.vrsc@"
 // keyID: The LMS key ID to query (optional, empty string for all)
-// Returns all attestation commits found in the identity
+// Returns all attestation commits found in the blockchain history
 func (v *VerusClient) QueryAttestationCommits(identityName, keyID string) ([]*AttestationCommit, error) {
-	identity, err := v.GetIdentity(identityName)
+	// Use GetIdentityHistory to get ALL commits (blockchain is append-only)
+	history, err := v.GetIdentityHistory(identityName, 0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get identity: %v", err)
+		return nil, fmt.Errorf("failed to get identity history: %v", err)
 	}
 
 	var commits []*AttestationCommit
 	const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
+	
+	// Track unique commits by (keyID, lmsIndex) to avoid duplicates
+	seenCommits := make(map[string]bool)
 
-	if identity.Identity.ContentMultiMap == nil {
-		return commits, nil
-	}
-
-	// If keyID specified, only look at that key
-	keysToCheck := []string{keyID}
-	if keyID == "" {
-		// Check all keys
-		for k := range identity.Identity.ContentMultiMap {
-			keysToCheck = append(keysToCheck, k)
-		}
-	}
-
-	for _, checkKey := range keysToCheck {
-		if checkKey == "" {
+	// Process history entries from oldest to newest
+	for _, entry := range history.History {
+		if entry.Identity.ContentMultiMap == nil {
 			continue
 		}
 
-		entries, ok := identity.Identity.ContentMultiMap[checkKey].([]interface{})
-		if !ok {
-			continue
-		}
+		// Iterate through all keys in this history entry
+		for histKeyID, entries := range entry.Identity.ContentMultiMap {
+			// If keyID filter specified, skip non-matching keys
+			if keyID != "" && histKeyID != keyID {
+				continue
+			}
 
-		for _, entry := range entries {
-			if entryMap, ok := entry.(map[string]interface{}); ok {
-				if lmsIndex, ok := entryMap[mapKey].(string); ok {
-					// checkKey is the normalized VDXF ID from Verus
-					// We need to try to reverse-normalize it, but since Verus normalizes keys,
-					// we'll store it as both KeyID (normalized) and try to use it as PubkeyHash
-					// The actual pubkey_hash might be in the original commit, but Verus stores normalized
-					// For now, we'll use checkKey as both - the lookup function will try to query Raft with it
-					// If it's a hex string (64 chars), it might be the original pubkey_hash
-					pubkeyHash := checkKey
-					// If checkKey looks like a VDXF ID (starts with 'i'), we can't reverse it
-					// But we can try to query Raft with it anyway - it might work if Raft stores normalized IDs
+			entryList, ok := entries.([]interface{})
+			if !ok {
+				continue
+			}
+
+			for _, item := range entryList {
+				entryMap, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+
+				lmsIndex, ok := entryMap[mapKey].(string)
+				if !ok {
+					continue
+				}
+
+				// Create unique commit key
+				commitKey := fmt.Sprintf("%s:%s", histKeyID, lmsIndex)
+				
+				// Only record first occurrence (actual commit block height)
+				if !seenCommits[commitKey] {
+					seenCommits[commitKey] = true
+					
 					commits = append(commits, &AttestationCommit{
-						KeyID:       checkKey,   // Normalized VDXF ID
-						PubkeyHash:  pubkeyHash, // Try using the same value - might be hex or normalized
+						KeyID:       histKeyID,  // Normalized VDXF ID
+						PubkeyHash:  histKeyID,  // Use same value (might be normalized)
 						LMSIndex:    lmsIndex,
-						BlockHeight: identity.BlockHeight,
-						TxID:        identity.TxID,
-						Timestamp:   time.Now(), // TODO: Get actual block timestamp
+						BlockHeight: entry.Height,
+						TxID:        entry.Output.TxID,
+						Timestamp:   time.Now(), // TODO: Get actual block timestamp if available
 					})
 				}
 			}
@@ -606,22 +601,34 @@ func (v *VerusClient) ValidateAddress(address string) (bool, error) {
 	return isValid, nil
 }
 
-// GetAllKeyIDs returns all key_ids that have committed indices
+// GetAllKeyIDs returns all key_ids that have committed indices (from history)
 func (v *VerusClient) GetAllKeyIDs(identityName string) ([]string, error) {
-	identity, err := v.GetIdentity(identityName)
+	// Use GetIdentityHistory to get ALL keys (blockchain is append-only)
+	history, err := v.GetIdentityHistory(identityName, 0, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	if identity.Identity.ContentMultiMap == nil {
-		return []string{}, nil
+	keyIDSet := make(map[string]bool)
+
+	// Process history entries to collect all unique key IDs
+	for _, entry := range history.History {
+		if entry.Identity.ContentMultiMap == nil {
+			continue
+		}
+		
+		for keyID := range entry.Identity.ContentMultiMap {
+			keyIDSet[keyID] = true
+		}
 	}
 
-	var keyIDs []string
-	for keyID := range identity.Identity.ContentMultiMap {
+	// Convert set to slice
+	keyIDs := make([]string, 0, len(keyIDSet))
+	for keyID := range keyIDSet {
 		keyIDs = append(keyIDs, keyID)
 	}
 
+	sort.Strings(keyIDs)
 	return keyIDs, nil
 }
 
