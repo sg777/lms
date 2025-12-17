@@ -185,20 +185,31 @@ async function loadRecentCommits(silent = false) {
         // Get currently displayed commits for comparison
         const displayedCommits = currentCommits || [];
         
+        // Use the API data directly - it's already sorted correctly by RaftIndex (newest first)
+        // Limit to DISPLAY_LIMIT
+        const finalCommits = data.commits.slice(0, DISPLAY_LIMIT);
+        
+        // Check if the displayed data has actually changed (compare by RaftIndex and hash)
+        if (displayedCommits.length === finalCommits.length) {
+            let hasChanges = false;
+            for (let i = 0; i < finalCommits.length; i++) {
+                if (finalCommits[i].hash !== displayedCommits[i].hash || 
+                    finalCommits[i].raft_index !== displayedCommits[i].raft_index) {
+                    hasChanges = true;
+                    break;
+                }
+            }
+            // If nothing changed, skip update (no blink)
+            if (!hasChanges) {
+                return;
+            }
+        }
+        
         // Create a set of displayed commit hashes for quick lookup
         const displayedHashSet = new Set(displayedCommits.map(c => c.hash));
         
         // Find new commits (not in currently displayed)
-        const newCommits = data.commits.filter(commit => !displayedHashSet.has(commit.hash));
-        
-        // If no new commits and we already have data, do nothing (incremental refresh)
-        if (newCommits.length === 0 && displayedCommits.length > 0) {
-            return; // No changes, skip update
-        }
-
-        // Use the API data directly - it's already sorted correctly by RaftIndex (newest first)
-        // Limit to DISPLAY_LIMIT
-        const finalCommits = data.commits.slice(0, DISPLAY_LIMIT);
+        const newCommits = finalCommits.filter(commit => !displayedHashSet.has(commit.hash));
 
         // Update currentCommits
         currentCommits = finalCommits;
