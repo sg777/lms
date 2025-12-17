@@ -310,17 +310,82 @@ func (s *ExplorerServer) getChain(keyID string) (*ChainResponse, error) {
 func (s *ExplorerServer) getStats() (*StatsResponse, error) {
 	stats := &StatsResponse{}
 
-	// Get recent commits to calculate stats
-	commits, err := s.getRecentCommits(10000) // Get a large number
+	// Get blockchain commits to calculate accurate stats (filtered by bootstrap height)
+	// This ensures stats match what's shown in the blockchain explorer
+	client := newVerusClientFromEnv()
+	identityName := verusIdentityName()
+	bootstrapHeight := getBootstrapBlockHeight()
+
+	// Get all commits from blockchain
+	commits, err := client.QueryAttestationCommits(identityName, "")
 	if err != nil {
-		return nil, err
+		// Fallback to Raft commits if blockchain query fails
+		raftCommits, raftErr := s.getRecentCommits(10000)
+		if raftErr != nil {
+			return nil, fmt.Errorf("failed to get commits from blockchain and Raft: blockchain=%v, raft=%v", err, raftErr)
+		}
+		stats.TotalCommits = len(raftCommits)
+	} else {
+		// Get history to find actual block heights
+		history, err := client.GetIdentityHistory(identityName, 0, 0)
+		if err != nil {
+			// Use all commits if history fails (will overcount)
+			stats.TotalCommits = len(commits)
+		} else {
+			// Build history map to get actual block heights
+			historyMap := make(map[string]int64)
+			const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
+			if history != nil && len(history.History) > 0 {
+				for i := len(history.History) - 1; i >= 0; i-- {
+					entry := history.History[i]
+					if entry.Identity.ContentMultiMap == nil {
+						continue
+					}
+					for keyID, entries := range entry.Identity.ContentMultiMap {
+						if entryList, ok := entries.([]interface{}); ok {
+							for _, item := range entryList {
+								if entryMap, ok := item.(map[string]interface{}); ok {
+									if lmsIndex, ok := entryMap[mapKey].(string); ok {
+										mapKeyStr := fmt.Sprintf("%s:%s", keyID, lmsIndex)
+										if existingHeight, exists := historyMap[mapKeyStr]; !exists {
+											historyMap[mapKeyStr] = entry.Height
+										} else if entry.Height < existingHeight {
+											historyMap[mapKeyStr] = entry.Height
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Count commits that are above bootstrap height
+			blockchainCommitCount := 0
+			for _, commit := range commits {
+				mapKeyStr := fmt.Sprintf("%s:%s", commit.KeyID, commit.LMSIndex)
+				blockHeight := commit.BlockHeight
+				if histHeight, exists := historyMap[mapKeyStr]; exists {
+					blockHeight = histHeight
+				}
+				if bootstrapHeight <= 0 || blockHeight >= bootstrapHeight {
+					blockchainCommitCount++
+				}
+			}
+			stats.TotalCommits = blockchainCommitCount
+		}
 	}
 
-	stats.TotalCommits = len(commits)
+	// Get Raft commits for other stats (key count, chain validation)
+	raftCommits, err := s.getRecentCommits(10000)
+	if err != nil {
+		// Continue with blockchain stats if Raft fails
+		raftCommits = []CommitInfo{}
+	}
 
-	// Count unique keys
+	// Count unique keys from Raft commits
 	keySet := make(map[string]bool)
-	for _, commit := range commits {
+	for _, commit := range raftCommits {
 		keySet[commit.KeyID] = true
 	}
 	stats.TotalKeys = len(keySet)
@@ -344,8 +409,8 @@ func (s *ExplorerServer) getStats() (*StatsResponse, error) {
 	stats.ValidChains = validChains
 	stats.BrokenChains = brokenChains
 
-	if len(commits) > 0 {
-		stats.LastCommit = commits[0].Timestamp
+	if len(raftCommits) > 0 {
+		stats.LastCommit = raftCommits[0].Timestamp
 	}
 
 	return stats, nil

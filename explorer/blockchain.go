@@ -202,7 +202,7 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 		"success":      true,
 		"identity":     identityName,
 		"block_height": height,
-		"commit_count": len(commits),
+		"commit_count": len(enrichedCommits), // Use enrichedCommits count (after bootstrap filtering)
 		"commits":      enrichedCommits,
 	})
 }
