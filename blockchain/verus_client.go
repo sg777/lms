@@ -108,19 +108,7 @@ func (v *VerusClient) callRPC(method string, params []interface{}) (json.RawMess
 	}
 
 	if rpcResp.Error != nil {
-		// Provide more user-friendly error messages for common error codes
-		errorMsg := rpcResp.Error.Message
-		if rpcResp.Error.Code == -4 {
-			// Error code -4 usually means transaction rejected (too large, invalid, or other validation failure)
-			// The hex string in the message is the raw transaction data
-			if len(rpcResp.Error.Message) > 200 {
-				// Likely contains hex transaction data - provide clearer explanation
-				errorMsg = "Transaction rejected by blockchain node (code -4). The identity's contentmultimap has grown too large to update in a single transaction. This is a blockchain limitation when there are many commits. Your data is safe in Raft - consider using Raft as the primary system and blockchain as backup only, or contact support for alternatives."
-			} else {
-				errorMsg = fmt.Sprintf("Transaction rejected by blockchain node (code -4): %s", rpcResp.Error.Message)
-			}
-		}
-		return nil, fmt.Errorf("RPC error: %s (code: %d)", errorMsg, rpcResp.Error.Code)
+		return nil, fmt.Errorf("RPC error: %s (code: %d)", rpcResp.Error.Message, rpcResp.Error.Code)
 	}
 
 	return rpcResp.Result, nil
