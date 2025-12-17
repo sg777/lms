@@ -38,16 +38,15 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 
 	// Get identity history to find actual block heights for each commit
 	// This is needed because QueryAttestationCommits only returns current identity block height
-	// If bootstrap height is set, only fetch history from that point forward
-	historyStartHeight := int64(0)
-	if bootstrapHeight > 0 {
-		historyStartHeight = bootstrapHeight
-	}
-	history, err := client.GetIdentityHistory(identityName, historyStartHeight, 0)
+	// Note: We need to fetch from 0 (genesis) to find when commits were first made
+	// Bootstrap filtering will happen later when displaying commits
+	history, err := client.GetIdentityHistory(identityName, 0, 0)
 	if err != nil {
 		// If history fails, log the error but continue with current state
 		log.Printf("[WARNING] Failed to get identity history: %v. Using current block height for all commits.", err)
 		history = nil
+	} else {
+		log.Printf("[INFO] Retrieved identity history with %d entries", len(history.History))
 	}
 
 	// Build a map of (keyID, lmsIndex) -> (blockHeight, txID) from history
@@ -59,9 +58,11 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 		const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
 		log.Printf("[INFO] Processing %d history entries to find commit block heights", len(history.History))
 
-		// Process ALL history entries and find the NEWEST (highest) block height for each commit
-		// We want the LATEST time each lms_index was committed, which is the newest block height
-		for i := 0; i < len(history.History); i++ {
+		// Process ALL history entries and find the FIRST (oldest) block height for each commit
+		// We want the FIRST time each (keyID, lmsIndex) combination appears, which is when it was committed
+		// Once committed, it stays in all subsequent history entries, so we need the OLDEST occurrence
+		// Process from oldest to newest to capture the first occurrence
+		for i := len(history.History) - 1; i >= 0; i-- {
 			entry := history.History[i]
 			if entry.Identity.ContentMultiMap == nil {
 				continue
@@ -74,19 +75,19 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 							if lmsIndex, ok := entryMap[mapKey].(string); ok {
 								// Create map key: "keyID:lmsIndex"
 								mapKeyStr := fmt.Sprintf("%s:%s", keyID, lmsIndex)
-								// Store the NEWEST (highest) block height for this commit
-								// If we haven't seen it before, store it
-								// If we have seen it, only update if this entry is newer (higher height)
+								// Store the FIRST (oldest) block height for this commit
+								// Process backwards so first occurrence overwrites later ones
+								// If we haven't seen it before OR this is older (lower height), store it
 								if existingHeight, exists := historyMap[mapKeyStr]; !exists {
 									// First time seeing this commit - store it
 									historyMap[mapKeyStr] = entry.Height
 									txidMap[mapKeyStr] = entry.Output.TxID
 									log.Printf("[DEBUG] Found commit: keyID=%s, lmsIndex=%s, blockHeight=%d, txID=%s", keyID, lmsIndex, entry.Height, entry.Output.TxID)
-								} else if entry.Height > existingHeight {
-									// Found a newer entry (higher block height) - update to the newest
+								} else if entry.Height < existingHeight {
+									// Found an older entry (lower block height) - update to the oldest (first commit)
 									historyMap[mapKeyStr] = entry.Height
 									txidMap[mapKeyStr] = entry.Output.TxID
-									log.Printf("[DEBUG] Updated commit to newer block: keyID=%s, lmsIndex=%s, oldHeight=%d, newHeight=%d, txID=%s", keyID, lmsIndex, existingHeight, entry.Height, entry.Output.TxID)
+									log.Printf("[DEBUG] Updated commit to older block (first occurrence): keyID=%s, lmsIndex=%s, oldHeight=%d, newHeight=%d, txID=%s", keyID, lmsIndex, existingHeight, entry.Height, entry.Output.TxID)
 								}
 							}
 						}
