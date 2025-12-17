@@ -192,15 +192,19 @@ async function loadRecentCommits(silent = false) {
             return; // No changes, skip update
         }
 
-        // Merge: new commits at top, then existing commits
-        // Remove duplicates (by hash) - keep newer ones
+        // Merge: new commits at top, then existing commits that are still in API response
+        // Create a set of fetched commit hashes for quick lookup
+        const fetchedHashSet = new Set(data.commits.map(c => c.hash));
+        
+        // Get existing commits that are still in the fetched data (not removed from API)
+        const stillExistingCommits = displayedCommits.filter(c => fetchedHashSet.has(c.hash));
+        
+        // Merge: new commits first, then existing ones (avoid duplicates)
         const mergedCommits = [...newCommits];
-        for (const existing of displayedCommits) {
-            if (!displayedHashSet.has(existing.hash) || !newCommits.find(c => c.hash === existing.hash)) {
-                // Only add if not already in newCommits
-                if (!newCommits.find(c => c.hash === existing.hash)) {
-                    mergedCommits.push(existing);
-                }
+        for (const existing of stillExistingCommits) {
+            // Only add if not already in newCommits (avoid duplicates)
+            if (!newCommits.find(c => c.hash === existing.hash)) {
+                mergedCommits.push(existing);
             }
         }
 
