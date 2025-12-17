@@ -8,6 +8,9 @@ let currentStats = null;
 let authToken = localStorage.getItem('auth_token');
 let currentUser = null;
 
+// Blockchain explorer auto-refresh
+let blockchainRefreshInterval = null;
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     // Check if user is already logged in
@@ -58,15 +61,16 @@ function setupEventListeners() {
     const viewBlockchainBtn = document.getElementById('viewBlockchainBtn');
     if (viewBlockchainBtn) {
         viewBlockchainBtn.addEventListener('click', () => {
-            loadBlockchainCommits();
+            loadBlockchainCommits(false);
         });
     }
     const refreshBlockchainBtn = document.getElementById('refreshBlockchainBtn');
     const closeBlockchainBtn = document.getElementById('closeBlockchainBtn');
     const currentBlockHeightBtn = document.getElementById('currentBlockHeightBtn');
-    if (refreshBlockchainBtn) refreshBlockchainBtn.addEventListener('click', loadBlockchainCommits);
+    if (refreshBlockchainBtn) refreshBlockchainBtn.addEventListener('click', () => loadBlockchainCommits(false));
     if (closeBlockchainBtn) closeBlockchainBtn.addEventListener('click', () => {
         document.getElementById('blockchainSection').style.display = 'none';
+        stopBlockchainAutoRefresh();
     });
     if (currentBlockHeightBtn) {
         currentBlockHeightBtn.addEventListener('click', async () => {
@@ -494,19 +498,44 @@ function displayChain(chain, container) {
     container.innerHTML = html;
 }
 
+// Start auto-refresh for blockchain explorer
+function startBlockchainAutoRefresh() {
+    // Clear any existing interval
+    stopBlockchainAutoRefresh();
+    
+    // Auto-refresh every 10 seconds (longer than main view since blockchain queries are more expensive)
+    blockchainRefreshInterval = setInterval(() => {
+        const blockchainSection = document.getElementById('blockchainSection');
+        // Only refresh if section is visible
+        if (blockchainSection && blockchainSection.style.display === 'block') {
+            loadBlockchainCommits(true); // silent = true for auto-refresh
+        }
+    }, 10000);
+}
+
+// Stop auto-refresh for blockchain explorer
+function stopBlockchainAutoRefresh() {
+    if (blockchainRefreshInterval) {
+        clearInterval(blockchainRefreshInterval);
+        blockchainRefreshInterval = null;
+    }
+}
+
 // Load blockchain commits from Verus
-async function loadBlockchainCommits() {
-    // Always switch to explorer tab first
-    if (typeof switchTab === 'function') {
-        switchTab('explorer');
-        // Wait for tab switch to complete
-        await new Promise(resolve => setTimeout(resolve, 200));
-    } else {
-        // Fallback: click explorer tab button
-        const explorerTabBtn = document.querySelector('.tab-btn[data-tab="explorer"]');
-        if (explorerTabBtn) {
-            explorerTabBtn.click();
+async function loadBlockchainCommits(silent = false) {
+    // Always switch to explorer tab first (only for manual refresh)
+    if (!silent) {
+        if (typeof switchTab === 'function') {
+            switchTab('explorer');
+            // Wait for tab switch to complete
             await new Promise(resolve => setTimeout(resolve, 200));
+        } else {
+            // Fallback: click explorer tab button
+            const explorerTabBtn = document.querySelector('.tab-btn[data-tab="explorer"]');
+            if (explorerTabBtn) {
+                explorerTabBtn.click();
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
         }
     }
     
@@ -514,15 +543,23 @@ async function loadBlockchainCommits() {
     const blockchainView = document.getElementById('blockchainView');
     
     if (!blockchainSection || !blockchainView) {
-        alert('Blockchain view not available. Please ensure you are on the Explorer tab.');
+        if (!silent) {
+            alert('Blockchain view not available. Please ensure you are on the Explorer tab.');
+        }
         return;
     }
     
-    blockchainSection.style.display = 'block';
-    blockchainView.innerHTML = '<div class="loading">Loading blockchain commits...</div>';
-    
-    // Scroll to blockchain section
-    blockchainSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Show section and start auto-refresh (only for manual refresh)
+    if (!silent) {
+        blockchainSection.style.display = 'block';
+        blockchainView.innerHTML = '<div class="loading">Loading blockchain commits...</div>';
+        
+        // Scroll to blockchain section
+        blockchainSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        
+        // Start auto-refresh
+        startBlockchainAutoRefresh();
+    }
     
     try {
         const response = await fetch(`${API_BASE}/api/blockchain`);
@@ -533,18 +570,24 @@ async function loadBlockchainCommits() {
         
         const data = await response.json();
         
-        console.log('Blockchain API response:', data);
+        if (!silent) {
+            console.log('Blockchain API response:', data);
+        }
         
         if (!data.success) {
             throw new Error(data.error || 'Failed to load blockchain commits');
         }
         
         if (!data.commits || data.commits.length === 0) {
-            blockchainView.innerHTML = '<div class="info">No blockchain commits found in identity ' + escapeHtml(data.identity) + '</div>';
+            if (!silent) {
+                blockchainView.innerHTML = '<div class="info">No blockchain commits found in identity ' + escapeHtml(data.identity) + '</div>';
+            }
             return;
         }
         
-        console.log('Displaying', data.commits.length, 'commits');
+        if (!silent) {
+            console.log('Displaying', data.commits.length, 'commits');
+        }
         
         // Update current block height button with actual number
         const heightText = document.getElementById('currentBlockHeightText');
@@ -556,8 +599,10 @@ async function loadBlockchainCommits() {
         
         displayBlockchainCommits(data, blockchainView);
     } catch (error) {
-        blockchainView.innerHTML = `<div class="error">Error loading blockchain commits: ${escapeHtml(error.message)}</div>`;
-        console.error('Blockchain load error:', error);
+        if (!silent) {
+            blockchainView.innerHTML = `<div class="error">Error loading blockchain commits: ${escapeHtml(error.message)}</div>`;
+            console.error('Blockchain load error:', error);
+        }
     }
 }
 
