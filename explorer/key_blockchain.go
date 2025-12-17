@@ -13,7 +13,10 @@ import (
 
 // handleKeyBlockchainToggle handles enabling/disabling blockchain for a key
 func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[BLOCKCHAIN_TOGGLE] Request received - Method: %s, URL: %s", r.Method, r.URL.String())
+	
 	if r.Method != http.MethodPost {
+		log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Method not allowed - got %s, expected POST", r.Method)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -26,6 +29,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 	// Get user from JWT token
 	tokenString := extractTokenFromHeader(r)
 	if tokenString == "" {
+		log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: No token in request header")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -37,6 +41,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 
 	claims, err := ValidateToken(tokenString)
 	if err != nil {
+		log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Token validation failed: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -46,6 +51,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		return
 	}
 	userID := claims.UserID
+	log.Printf("[BLOCKCHAIN_TOGGLE] User authenticated: userID=%s", userID)
 
 	var req struct {
 		KeyID  string `json:"key_id"`
@@ -53,6 +59,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Failed to decode request body: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -63,6 +70,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 	}
 
 	if req.KeyID == "" {
+		log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: key_id is required")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -71,12 +79,17 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		})
 		return
 	}
+	
+	log.Printf("[BLOCKCHAIN_TOGGLE] Request: key_id=%s, enable=%v", req.KeyID, req.Enable)
 
 	// If enabling, check wallet balance and commit current index to blockchain
 	if req.Enable {
+		log.Printf("[BLOCKCHAIN_TOGGLE] Enabling blockchain for key_id=%s, userID=%s", req.KeyID, userID)
+		
 		// Get user's wallets
 		wallets, err := s.walletDB.GetWalletsByUserID(userID)
-		if err != nil || len(wallets) == 0 {
+		if err != nil {
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Failed to get wallets for userID=%s: %v", userID, err)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -84,6 +97,16 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 			})
 			return
 		}
+		if len(wallets) == 0 {
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: No wallets found for userID=%s", userID)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "No wallet found. Please create a wallet first.",
+			})
+			return
+		}
+		log.Printf("[BLOCKCHAIN_TOGGLE] Found %d wallets for userID=%s", len(wallets), userID)
 
 		// Get total balance
 		verusClient := newVerusClientFromEnv()
@@ -92,15 +115,21 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		var fundingAddress string
 		for _, wallet := range wallets {
 			balance, err := verusClient.GetBalance(wallet.Address)
-			if err == nil {
+			if err != nil {
+				log.Printf("[BLOCKCHAIN_TOGGLE] WARNING: Failed to get balance for wallet %s: %v", wallet.Address, err)
+			} else {
+				log.Printf("[BLOCKCHAIN_TOGGLE] Wallet %s balance: %.8f CHIPS", wallet.Address, balance)
 				totalBalance += balance
 				if fundingAddress == "" && balance > 0.0001 {
 					fundingAddress = wallet.Address // Use first wallet with balance
+					log.Printf("[BLOCKCHAIN_TOGGLE] Selected funding address: %s (balance: %.8f CHIPS)", fundingAddress, balance)
 				}
 			}
 		}
+		log.Printf("[BLOCKCHAIN_TOGGLE] Total balance across all wallets: %.8f CHIPS", totalBalance)
 
 		if totalBalance < 0.0001 {
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Insufficient balance - total=%.8f CHIPS, required=0.0001 CHIPS", totalBalance)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -110,6 +139,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		}
 
 		if fundingAddress == "" {
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: No wallet with sufficient balance found (totalBalance=%.8f but no wallet > 0.0001)", totalBalance)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -120,9 +150,10 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 
 		// CRITICAL: Check Raft availability before enabling blockchain
 		// Raft must be available to enable blockchain (for consistency)
+		log.Printf("[BLOCKCHAIN_TOGGLE] Querying Raft for key_id=%s to get latest index and pubkey_hash", req.KeyID)
 		latestIndex, pubkeyHash, hasData, err := s.getLatestIndexFromRaft(req.KeyID)
 		if err != nil {
-			// Raft is unavailable - cannot enable blockchain
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Raft cluster unavailable for key_id=%s: %v", req.KeyID, err)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -130,9 +161,11 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 			})
 			return
 		}
+		log.Printf("[BLOCKCHAIN_TOGGLE] Raft query result: hasData=%v, latestIndex=%d, pubkeyHash=%s", hasData, latestIndex, pubkeyHash)
 
 		// If Raft has no data (nothing signed yet), just enable the setting (no blockchain commit)
 		if !hasData {
+			log.Printf("[BLOCKCHAIN_TOGGLE] No Raft data for key_id=%s, enabling setting without blockchain commit", req.KeyID)
 			// Store setting without committing to blockchain
 			setting := &KeyBlockchainSetting{
 				UserID:    userID,
@@ -142,6 +175,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 			}
 
 			if err := s.keyBlockchainDB.SetSetting(setting); err != nil {
+				log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Failed to save setting for key_id=%s: %v", req.KeyID, err)
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(map[string]interface{}{
 					"success": false,
@@ -150,6 +184,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 				return
 			}
 
+			log.Printf("[BLOCKCHAIN_TOGGLE] Successfully enabled blockchain setting for key_id=%s (no Raft data, no commit)", req.KeyID)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": true,
@@ -161,6 +196,9 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 
 		// Raft has data: Commit current latest index to blockchain
 		identityName := verusIdentityName()
+		log.Printf("[BLOCKCHAIN_TOGGLE] Committing to blockchain: identityName=%s, key_id=%s, pubkeyHash=%s, index=%d, fundingAddress=%s", 
+			identityName, req.KeyID, pubkeyHash, latestIndex, fundingAddress)
+		
 		normalizedKeyID, txID, err := verusClient.CommitLMSIndexWithPubkeyHash(
 			identityName,
 			pubkeyHash,
@@ -169,6 +207,8 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		)
 
 		if err != nil {
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Failed to commit to blockchain - key_id=%s, pubkeyHash=%s, index=%d, fundingAddress=%s, identityName=%s, error=%v", 
+				req.KeyID, pubkeyHash, latestIndex, fundingAddress, identityName, err)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -176,6 +216,9 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 			})
 			return
 		}
+		
+		log.Printf("[BLOCKCHAIN_TOGGLE] Successfully committed to blockchain: key_id=%s, normalizedKeyID=%s, txID=%s, index=%d", 
+			req.KeyID, normalizedKeyID, txID, latestIndex)
 
 		// Store setting
 		setting := &KeyBlockchainSetting{
@@ -187,6 +230,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		}
 
 		if err := s.keyBlockchainDB.SetSetting(setting); err != nil {
+			log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Failed to save setting after successful commit - key_id=%s, txID=%s, error=%v", req.KeyID, txID, err)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -195,6 +239,8 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 			return
 		}
 
+		log.Printf("[BLOCKCHAIN_TOGGLE] SUCCESS: Blockchain enabled for key_id=%s, txID=%s, normalizedKeyID=%s, index=%d", 
+			req.KeyID, txID, normalizedKeyID, latestIndex)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":           true,
@@ -208,6 +254,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 	}
 
 	// Disabling blockchain
+	log.Printf("[BLOCKCHAIN_TOGGLE] Disabling blockchain for key_id=%s, userID=%s", req.KeyID, userID)
 	setting := &KeyBlockchainSetting{
 		UserID:  userID,
 		KeyID:   req.KeyID,
@@ -215,6 +262,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.keyBlockchainDB.SetSetting(setting); err != nil {
+		log.Printf("[BLOCKCHAIN_TOGGLE] ERROR: Failed to save setting (disable) - key_id=%s, error=%v", req.KeyID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -224,6 +272,7 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		return
 	}
 
+	log.Printf("[BLOCKCHAIN_TOGGLE] SUCCESS: Blockchain disabled for key_id=%s", req.KeyID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
