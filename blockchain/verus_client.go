@@ -108,7 +108,13 @@ func (v *VerusClient) callRPC(method string, params []interface{}) (json.RawMess
 	}
 
 	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s (code: %d)", rpcResp.Error.Message, rpcResp.Error.Code)
+		// Provide more user-friendly error messages for common error codes
+		errorMsg := rpcResp.Error.Message
+		if rpcResp.Error.Code == -4 {
+			// Error code -4 usually means transaction too large or invalid transaction
+			errorMsg = fmt.Sprintf("Transaction rejected by blockchain node (code -4). This usually means the transaction data is too large or invalid. Original error: %s", rpcResp.Error.Message)
+		}
+		return nil, fmt.Errorf("RPC error: %s (code: %d)", errorMsg, rpcResp.Error.Code)
 	}
 
 	return rpcResp.Result, nil

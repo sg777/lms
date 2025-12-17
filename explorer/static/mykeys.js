@@ -211,7 +211,7 @@ async function toggleBlockchain(keyId, enable) {
             // Reload wallet balance (might have changed due to fees)
             await loadWalletBalance();
         } else {
-            alert(`❌ Error: ${data.error || 'Failed to toggle blockchain'}`);
+            showCopyableError(`❌ Error: ${data.error || 'Failed to toggle blockchain'}`);
             // Revert toggle
             if (toggle) {
                 toggle.checked = !enable;
@@ -219,13 +219,95 @@ async function toggleBlockchain(keyId, enable) {
             }
         }
     } catch (error) {
-        alert(`❌ Error: ${error.message}\n\nIf your wallet balance is zero, fund it before enabling blockchain.`);
+        showCopyableError(`❌ Error: ${error.message}\n\nIf your wallet balance is zero, fund it before enabling blockchain.`);
         // Revert toggle
         if (toggle) {
             toggle.checked = !enable;
             toggle.disabled = false;
         }
     }
+}
+
+// Show copyable error dialog
+function showCopyableError(message) {
+    // Remove any existing error dialog
+    const existing = document.getElementById('errorDialog');
+    if (existing) {
+        existing.remove();
+    }
+    
+    // Create dialog overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'errorDialog';
+    overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+    
+    // Create dialog box
+    const dialog = document.createElement('div');
+    dialog.style.cssText = 'background: white; border-radius: 8px; padding: 24px; max-width: 600px; max-height: 80vh; overflow: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: relative;';
+    
+    // Create close button
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = 'position: absolute; top: 8px; right: 8px; background: none; border: none; font-size: 24px; cursor: pointer; color: #666; padding: 4px 8px;';
+    closeBtn.onclick = () => overlay.remove();
+    
+    // Create title
+    const title = document.createElement('div');
+    title.textContent = 'Error';
+    title.style.cssText = 'font-size: 20px; font-weight: bold; margin-bottom: 16px; color: #dc2626;';
+    
+    // Create textarea for copyable error message
+    const textarea = document.createElement('textarea');
+    textarea.value = message;
+    textarea.readOnly = true;
+    textarea.style.cssText = 'width: 100%; min-height: 150px; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 13px; resize: vertical; white-space: pre-wrap; word-wrap: break-word;';
+    textarea.onclick = (e) => e.target.select();
+    
+    // Create copy button
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = '📋 Copy Error Message';
+    copyBtn.style.cssText = 'margin-top: 12px; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;';
+    copyBtn.onclick = () => {
+        textarea.select();
+        document.execCommand('copy');
+        copyBtn.textContent = '✓ Copied!';
+        setTimeout(() => {
+            copyBtn.textContent = '📋 Copy Error Message';
+        }, 2000);
+    };
+    
+    // Create OK button
+    const okBtn = document.createElement('button');
+    okBtn.textContent = 'OK';
+    okBtn.style.cssText = 'margin-top: 12px; margin-left: 8px; padding: 8px 24px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;';
+    okBtn.onclick = () => overlay.remove();
+    
+    // Assemble dialog
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.cssText = 'display: flex; justify-content: flex-end; margin-top: 12px;';
+    buttonContainer.appendChild(copyBtn);
+    buttonContainer.appendChild(okBtn);
+    
+    dialog.appendChild(closeBtn);
+    dialog.appendChild(title);
+    dialog.appendChild(textarea);
+    dialog.appendChild(buttonContainer);
+    overlay.appendChild(dialog);
+    
+    // Click outside to close
+    overlay.onclick = (e) => {
+        if (e.target === overlay) {
+            overlay.remove();
+        }
+    };
+    
+    document.body.appendChild(overlay);
+    
+    // Auto-focus and select text
+    setTimeout(() => {
+        textarea.focus();
+        textarea.select();
+    }, 100);
 }
 
 function updateSignKeySelect(keys) {
