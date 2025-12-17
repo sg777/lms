@@ -45,16 +45,17 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 	// This includes create, sign, sync, and delete records
 	const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
 	type historyCommit struct {
-		KeyID      string
-		LMSIndex   string
+		KeyID       string
+		LMSIndex    string
 		BlockHeight int64
-		TxID       string
+		TxID        string
 	}
 
 	historyCommits := make([]historyCommit, 0)
-	seenCommits := make(map[string]bool) // key: "keyID:lmsIndex:blockHeight" to deduplicate
+	firstSeen := make(map[string]bool) // key: "keyID:lmsIndex" to track if we've seen this commit before
 
-	// Process history entries (oldest to newest)
+	// Process history entries from OLDEST to NEWEST
+	// The first time we see a (keyID, lmsIndex) is when it was actually committed
 	for _, entry := range history.History {
 		if entry.Identity.ContentMultiMap == nil {
 			continue
@@ -65,16 +66,18 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 				for _, item := range entryList {
 					if entryMap, ok := item.(map[string]interface{}); ok {
 						if lmsIndex, ok := entryMap[mapKey].(string); ok {
-							// Create unique key to avoid duplicates
-							uniqueKey := fmt.Sprintf("%s:%s:%d", keyID, lmsIndex, entry.Height)
-							if !seenCommits[uniqueKey] {
-								seenCommits[uniqueKey] = true
+							// Create unique key: "keyID:lmsIndex" (without block height)
+							commitKey := fmt.Sprintf("%s:%s", keyID, lmsIndex)
+							// Only record the FIRST time we see this commit (actual commit block height)
+							if !firstSeen[commitKey] {
+								firstSeen[commitKey] = true
 								historyCommits = append(historyCommits, historyCommit{
 									KeyID:       keyID,
 									LMSIndex:    lmsIndex,
 									BlockHeight: entry.Height,
 									TxID:        entry.Output.TxID,
 								})
+								log.Printf("[DEBUG] Found commit: keyID=%s, lmsIndex=%s, blockHeight=%d, txID=%s", keyID, lmsIndex, entry.Height, entry.Output.TxID)
 							}
 						}
 					}
@@ -83,7 +86,7 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	log.Printf("[INFO] Extracted %d commits from history", len(historyCommits))
+	log.Printf("[INFO] Extracted %d unique commits from history", len(historyCommits))
 
 	// Cache key_id label lookups to avoid redundant queries
 	keyIDLabelCache := make(map[string]string) // normalizedKeyID -> key_id_label
@@ -116,8 +119,8 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 			"lms_index":    commit.LMSIndex,
 			"block_height": commit.BlockHeight,
 			"txid":         commit.TxID,
-			"timestamp":    time.Time{},  // Not available from history
-			"key_id_label": keyIDLabel,   // User-friendly key_id label from Raft
+			"timestamp":    time.Time{}, // Not available from history
+			"key_id_label": keyIDLabel,  // User-friendly key_id label from Raft
 		}
 
 		enrichedCommits = append(enrichedCommits, enrichedCommit)
