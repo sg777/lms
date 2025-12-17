@@ -182,7 +182,7 @@ async function loadRecentCommits(silent = false) {
             return;
         }
 
-        // Get currently displayed commits (from currentCommits or DOM)
+        // Get currently displayed commits for comparison
         const displayedCommits = currentCommits || [];
         
         // Create a set of displayed commit hashes for quick lookup
@@ -196,38 +196,26 @@ async function loadRecentCommits(silent = false) {
             return; // No changes, skip update
         }
 
-        // Merge: new commits at top, then existing commits that are still in API response
-        // Create a set of fetched commit hashes for quick lookup
-        const fetchedHashSet = new Set(data.commits.map(c => c.hash));
-        
-        // Get existing commits that are still in the fetched data (not removed from API)
-        const stillExistingCommits = displayedCommits.filter(c => fetchedHashSet.has(c.hash));
-        
-        // Merge: new commits first, then existing ones (avoid duplicates)
-        const mergedCommits = [...newCommits];
-        for (const existing of stillExistingCommits) {
-            // Only add if not already in newCommits (avoid duplicates)
-            if (!newCommits.find(c => c.hash === existing.hash)) {
-                mergedCommits.push(existing);
-            }
-        }
-
-        // Limit to DISPLAY_LIMIT (remove oldest if exceeding limit)
-        const finalCommits = mergedCommits.slice(0, DISPLAY_LIMIT);
+        // Use the API data directly - it's already sorted correctly by RaftIndex (newest first)
+        // Limit to DISPLAY_LIMIT
+        const finalCommits = data.commits.slice(0, DISPLAY_LIMIT);
 
         // Update currentCommits
         currentCommits = finalCommits;
+        
+        // Create a set of new commit hashes for highlighting
+        const newCommitHashSet = new Set(newCommits.map(c => c.hash));
 
         // Build HTML table
         let html = '<table><thead><tr><th>Key ID</th><th>Pubkey Hash</th><th>Index</th><th>Hash</th><th>Previous Hash</th></tr></thead><tbody>';
         
-        finalCommits.forEach((commit, index) => {
+        finalCommits.forEach((commit) => {
             const hashShort = commit.hash ? truncateHash(commit.hash, 20) : '-';
             const prevHashShort = commit.previous_hash ? truncateHash(commit.previous_hash, 20) : '-';
             const pubkeyHashShort = commit.pubkey_hash ? truncateHash(commit.pubkey_hash, 20) : '-';
             
             const keyIdEscaped = escapeHtml(commit.key_id).replace(/'/g, "\\'");
-            const isNew = index < newCommits.length;
+            const isNew = newCommitHashSet.has(commit.hash);
             const rowClass = isNew ? 'new-commit' : '';
             html += `
                 <tr class="${rowClass}" onclick="viewChain('${keyIdEscaped}')">
