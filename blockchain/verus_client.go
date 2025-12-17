@@ -264,9 +264,12 @@ func (v *VerusClient) UpdateIdentity(identityName, keyID, lmsIndex, fundingAddre
 
 	// Preserve existing contentmultimap if it exists
 	if current.Identity.ContentMultiMap != nil {
+		existingKeyCount := len(current.Identity.ContentMultiMap)
+		log.Printf("[UPDATE_IDENTITY] Preserving %d existing entries in contentmultimap for identity %s", existingKeyCount, identityName)
 		for k, v := range current.Identity.ContentMultiMap {
 			identityUpdate.ContentMultiMap[k] = v
 		}
+		log.Printf("[UPDATE_IDENTITY] Adding/updating entry for keyID=%s (total entries after update: %d)", keyID, len(identityUpdate.ContentMultiMap))
 	}
 
 	// Add or update the key_id entry (REPLACE latest only, not append history)
