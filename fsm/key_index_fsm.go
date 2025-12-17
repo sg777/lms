@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/hashicorp/raft"
@@ -458,13 +459,54 @@ func (f *KeyIndexFSM) GetChainByPubkeyHash(pubkeyHash string) ([]*KeyIndexEntry,
 }
 
 // GetKeyChain returns all entries for a key_id (looks up via pubkey_hash)
-// DEPRECATED: Use GetChainByPubkeyHash instead
+// DEPRECATED: Use GetAllEntriesByKeyID instead to get all entries for a key_id across all pubkey_hashes
 func (f *KeyIndexFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
-	pubkeyHash, exists := f.keyIdToPubkeyHash[keyID]
-	if !exists {
+	return f.GetAllEntriesByKeyID(keyID)
+}
+
+// GetAllEntriesByKeyID returns ALL entries for a key_id across ALL pubkey_hashes
+// This is needed when a key_id is reused (e.g., after delete and recreate)
+// Entries are sorted by pubkey_hash, then by index (ascending)
+func (f *KeyIndexFSM) GetAllEntriesByKeyID(keyID string) ([]*KeyIndexEntry, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	allEntries := make([]*KeyIndexEntry, 0)
+
+	// Iterate through all pubkey_hash entries to find all entries with matching key_id
+	for _, entries := range f.pubkeyHashEntries {
+		for _, entry := range entries {
+			if entry.KeyID == keyID {
+				// Create a copy
+				entryCopy := &KeyIndexEntry{
+					KeyID:        entry.KeyID,
+					PubkeyHash:   entry.PubkeyHash,
+					Index:        entry.Index,
+					PreviousHash: entry.PreviousHash,
+					Hash:         entry.Hash,
+					Signature:    entry.Signature,
+					PublicKey:    entry.PublicKey,
+					RecordType:   entry.RecordType,
+				}
+				allEntries = append(allEntries, entryCopy)
+			}
+		}
+	}
+
+	if len(allEntries) == 0 {
 		return nil, false
 	}
-	return f.GetChainByPubkeyHash(pubkeyHash)
+
+	// Sort entries: first by pubkey_hash (to group chains), then by index (ascending)
+	// This ensures entries from the same chain stay together
+	sort.Slice(allEntries, func(i, j int) bool {
+		if allEntries[i].PubkeyHash != allEntries[j].PubkeyHash {
+			return allEntries[i].PubkeyHash < allEntries[j].PubkeyHash
+		}
+		return allEntries[i].Index < allEntries[j].Index
+	})
+
+	return allEntries, true
 }
 
 // Snapshot creates a snapshot
