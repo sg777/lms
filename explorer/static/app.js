@@ -19,14 +19,14 @@ document.addEventListener('DOMContentLoaded', () => {
     loadStats();
     setupEventListeners();
     
-    // Auto-refresh every 10 seconds (silent if no changes)
+    // Auto-refresh every 5 seconds (silent if no changes)
     setInterval(() => {
         loadRecentCommits(true); // silent = true for auto-refresh
         loadStats(true); // silent = true for auto-refresh
         if (authToken) {
             loadMyKeys(true); // silent refresh
         }
-    }, 10000);
+    }, 5000);
 });
 
 function setupEventListeners() {
@@ -163,9 +163,11 @@ function commitsEqual(commits1, commits2) {
 
 async function loadRecentCommits(silent = false) {
     const container = document.getElementById('recentCommits');
+    const DISPLAY_LIMIT = 10; // Maximum number of commits to display
     
     try {
-        const response = await fetch(`${API_BASE}/api/recent?limit=50`);
+        // Fetch top 10 entries (plus a few extra for comparison)
+        const response = await fetch(`${API_BASE}/api/recent?limit=${DISPLAY_LIMIT + 5}`);
         const data = await response.json();
 
         if (!data.success || !data.commits || data.commits.length === 0) {
@@ -176,47 +178,51 @@ async function loadRecentCommits(silent = false) {
             return;
         }
 
-        // Check if data has changed
-        const hasChanged = !commitsEqual(currentCommits, data.commits);
+        // Get currently displayed commits (from currentCommits or DOM)
+        const displayedCommits = currentCommits || [];
         
-        // If silent mode and no changes, do nothing
-        if (silent && !hasChanged) {
-            return;
-        }
-
-        // Store current data
-        currentCommits = data.commits;
-
-        // If no changes and not first load, skip UI update
-        if (!hasChanged && container.querySelector('table')) {
-            return;
-        }
-
-        // Show loading only if we have existing content and not in silent mode
-        const existingTable = container.querySelector('table');
-        let loadingDiv = null;
+        // Create a set of displayed commit hashes for quick lookup
+        const displayedHashSet = new Set(displayedCommits.map(c => c.hash));
         
-        if (!silent && existingTable) {
-            loadingDiv = document.createElement('div');
-            loadingDiv.className = 'loading-overlay';
-            loadingDiv.innerHTML = '<div class="loading">Refreshing...</div>';
-            container.appendChild(loadingDiv);
-            loadingDiv.style.opacity = '0';
-            setTimeout(() => loadingDiv.style.opacity = '1', 10);
-        } else if (!existingTable) {
-            container.innerHTML = '<div class="loading">Loading recent commits...</div>';
+        // Find new commits (not in currently displayed)
+        const newCommits = data.commits.filter(commit => !displayedHashSet.has(commit.hash));
+        
+        // If no new commits and we already have data, do nothing (incremental refresh)
+        if (newCommits.length === 0 && displayedCommits.length > 0) {
+            return; // No changes, skip update
         }
 
+        // Merge: new commits at top, then existing commits
+        // Remove duplicates (by hash) - keep newer ones
+        const mergedCommits = [...newCommits];
+        for (const existing of displayedCommits) {
+            if (!displayedHashSet.has(existing.hash) || !newCommits.find(c => c.hash === existing.hash)) {
+                // Only add if not already in newCommits
+                if (!newCommits.find(c => c.hash === existing.hash)) {
+                    mergedCommits.push(existing);
+                }
+            }
+        }
+
+        // Limit to DISPLAY_LIMIT (remove oldest if exceeding limit)
+        const finalCommits = mergedCommits.slice(0, DISPLAY_LIMIT);
+
+        // Update currentCommits
+        currentCommits = finalCommits;
+
+        // Build HTML table
         let html = '<table><thead><tr><th>Key ID</th><th>Pubkey Hash</th><th>Index</th><th>Hash</th><th>Previous Hash</th></tr></thead><tbody>';
         
-        data.commits.forEach(commit => {
+        finalCommits.forEach((commit, index) => {
             const hashShort = commit.hash ? truncateHash(commit.hash, 20) : '-';
             const prevHashShort = commit.previous_hash ? truncateHash(commit.previous_hash, 20) : '-';
             const pubkeyHashShort = commit.pubkey_hash ? truncateHash(commit.pubkey_hash, 20) : '-';
             
             const keyIdEscaped = escapeHtml(commit.key_id).replace(/'/g, "\\'");
+            const isNew = index < newCommits.length;
+            const rowClass = isNew ? 'new-commit' : '';
             html += `
-                <tr onclick="viewChain('${keyIdEscaped}')">
+                <tr class="${rowClass}" onclick="viewChain('${keyIdEscaped}')">
                     <td><strong>${escapeHtml(commit.key_id)}</strong></td>
                     <td class="hash-cell" title="${commit.pubkey_hash || ''}">${pubkeyHashShort}</td>
                     <td>${commit.index}</td>
@@ -228,23 +234,33 @@ async function loadRecentCommits(silent = false) {
 
         html += '</tbody></table>';
         
-        // Update UI only if we're not in silent mode or if data changed
-        if (existingTable && !silent) {
-            existingTable.style.opacity = '0';
-            if (loadingDiv) loadingDiv.style.opacity = '0';
+        // Smooth update: only animate if there are new commits
+        const existingTable = container.querySelector('table');
+        if (existingTable && newCommits.length > 0) {
+            // Fade out old rows, then update with highlight for new ones
+            const rows = existingTable.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                row.style.transition = 'opacity 0.3s ease-out';
+                row.style.opacity = '0';
+            });
+            
             setTimeout(() => {
                 container.innerHTML = html;
                 const newTable = container.querySelector('table');
                 if (newTable) {
-                    newTable.style.opacity = '0';
-                    setTimeout(() => {
-                        newTable.style.transition = 'opacity 0.3s ease-in';
-                        newTable.style.opacity = '1';
-                    }, 50);
+                    // Highlight new rows
+                    const newRows = newTable.querySelectorAll('tr.new-commit');
+                    newRows.forEach(row => {
+                        row.style.backgroundColor = '#e8f5e9';
+                        row.style.transition = 'background-color 2s ease-out';
+                        setTimeout(() => {
+                            row.style.backgroundColor = '';
+                        }, 2000);
+                    });
                 }
-            }, 200);
-        } else if (!existingTable || hasChanged) {
-            // First load or data changed - update immediately
+            }, 300);
+        } else if (!existingTable || !silent) {
+            // First load or manual refresh - update immediately
             container.innerHTML = html;
         }
     } catch (error) {
