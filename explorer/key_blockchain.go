@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -169,7 +170,33 @@ func (s *ExplorerServer) handleKeyBlockchainToggle(w http.ResponseWriter, r *htt
 		)
 
 		if err != nil {
+			// Check if error is due to transaction size limit
+			errorStr := err.Error()
 			w.Header().Set("Content-Type", "application/json")
+			
+			// If it's a transaction size issue (code -4 with long hex message = transaction rejected),
+			// still enable the setting but warn the user. Data is safe in Raft.
+			// Code -4 typically means transaction rejected, often due to size limits when identity is large
+			// Long error messages (>300 chars) usually contain hex transaction data indicating size issues
+			if strings.Contains(errorStr, "code -4") && len(errorStr) > 300 {
+				// Enable setting without blockchain commit (data is safe in Raft)
+				setting := &KeyBlockchainSetting{
+					UserID:    userID,
+					KeyID:     req.KeyID,
+					Enabled:   true,
+					EnabledAt: time.Now().Format(time.RFC3339),
+				}
+				if saveErr := s.keyBlockchainDB.SetSetting(setting); saveErr == nil {
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"success": true,
+						"enabled": true,
+						"warning": "Blockchain enabled, but could not commit current index due to transaction size limits. Future commits will attempt to go to blockchain, but may fail if identity is too large. Your data is safely stored in Raft.",
+						"error":   fmt.Sprintf("Failed to commit current index to blockchain: %v", err),
+					})
+					return
+				}
+			}
+			
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
 				"error":   fmt.Sprintf("Failed to commit to blockchain: %v", err),
