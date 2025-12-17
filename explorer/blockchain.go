@@ -59,9 +59,8 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 		const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
 		log.Printf("[INFO] Processing %d history entries to find commit block heights", len(history.History))
 
-		// Process ALL history entries and find the OLDEST (lowest) block height for each commit
-		// We want the FIRST time each lms_index was committed, which is the oldest block height
-		// Process in both directions to ensure we catch the oldest regardless of history order
+		// Process ALL history entries and find the NEWEST (highest) block height for each commit
+		// We want the LATEST time each lms_index was committed, which is the newest block height
 		for i := 0; i < len(history.History); i++ {
 			entry := history.History[i]
 			if entry.Identity.ContentMultiMap == nil {
@@ -75,19 +74,19 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 							if lmsIndex, ok := entryMap[mapKey].(string); ok {
 								// Create map key: "keyID:lmsIndex"
 								mapKeyStr := fmt.Sprintf("%s:%s", keyID, lmsIndex)
-								// Store the OLDEST (lowest) block height for this commit
+								// Store the NEWEST (highest) block height for this commit
 								// If we haven't seen it before, store it
-								// If we have seen it, only update if this entry is older (lower height)
+								// If we have seen it, only update if this entry is newer (higher height)
 								if existingHeight, exists := historyMap[mapKeyStr]; !exists {
 									// First time seeing this commit - store it
 									historyMap[mapKeyStr] = entry.Height
 									txidMap[mapKeyStr] = entry.Output.TxID
 									log.Printf("[DEBUG] Found commit: keyID=%s, lmsIndex=%s, blockHeight=%d, txID=%s", keyID, lmsIndex, entry.Height, entry.Output.TxID)
-								} else if entry.Height < existingHeight {
-									// Found an older entry (lower block height) - update to the oldest
+								} else if entry.Height > existingHeight {
+									// Found a newer entry (higher block height) - update to the newest
 									historyMap[mapKeyStr] = entry.Height
 									txidMap[mapKeyStr] = entry.Output.TxID
-									log.Printf("[DEBUG] Updated commit to older block: keyID=%s, lmsIndex=%s, oldHeight=%d, newHeight=%d, txID=%s", keyID, lmsIndex, existingHeight, entry.Height, entry.Output.TxID)
+									log.Printf("[DEBUG] Updated commit to newer block: keyID=%s, lmsIndex=%s, oldHeight=%d, newHeight=%d, txID=%s", keyID, lmsIndex, existingHeight, entry.Height, entry.Output.TxID)
 								}
 							}
 						}
