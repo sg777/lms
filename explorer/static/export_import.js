@@ -65,7 +65,7 @@ async function exportKey(keyId) {
             throw new Error(data.error || 'Export failed');
         }
     } catch (error) {
-        alert('Error exporting key: ' + error.message);
+        showCopyableError('Error exporting key: ' + error.message);
     }
 }
 
@@ -106,7 +106,7 @@ async function deleteKey(keyId) {
             throw new Error(data.error || 'Delete failed');
         }
     } catch (error) {
-        alert('Error deleting key: ' + error.message);
+        showCopyableError('Error deleting key: ' + error.message);
     }
 }
 

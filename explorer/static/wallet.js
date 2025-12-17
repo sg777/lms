@@ -104,7 +104,7 @@ async function createWallet() {
         // Reload wallets
         await loadWallets();
     } catch (error) {
-        alert(`Error creating wallet: ${escapeHtml(error.message)}`);
+        showCopyableError(`Error creating wallet: ${escapeHtml(error.message)}`);
         console.error('Create wallet error:', error);
     } finally {
         if (createBtn) {
@@ -129,7 +129,7 @@ async function refreshWalletBalance(address) {
         // Reload wallets to show updated balance
         await loadWallets();
     } catch (error) {
-        alert(`Error refreshing balance: ${escapeHtml(error.message)}`);
+        showCopyableError(`Error refreshing balance: ${escapeHtml(error.message)}`);
         console.error('Refresh balance error:', error);
     }
 }

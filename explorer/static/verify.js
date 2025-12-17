@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         const parsed = JSON.parse(content);
                         textarea.value = JSON.stringify(parsed, null, 2);
                     } catch (error) {
-                        alert('Error reading file: ' + error.message);
+                        showCopyableError('Error reading file: ' + error.message);
                     }
                 };
                 reader.readAsText(file);

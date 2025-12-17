@@ -167,7 +167,7 @@ async function toggleBlockchain(keyId, enable) {
             // ignore, will rely on backend error
         }
         if (enable && currentBalance < 0.0001) {
-            alert('❌ Not enough balance to enable blockchain. Please fund your wallet first.');
+            showCopyableError('❌ Not enough balance to enable blockchain. Please fund your wallet first.');
             if (toggle) {
                 toggle.checked = false;
                 toggle.disabled = false;
@@ -384,7 +384,7 @@ async function handleGenerateKey() {
             throw new Error(data.error || 'Failed to generate key');
         }
     } catch (error) {
-        alert('Error generating key: ' + error.message);
+        showCopyableError('Error generating key: ' + error.message);
     } finally {
         btn.textContent = originalText;
         btn.disabled = false;
