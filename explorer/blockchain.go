@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"time"
 )
 
 // handleBlockchain returns all blockchain commits from Verus identity
@@ -29,110 +30,77 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 		log.Printf("[INFO] Bootstrap block height configured: %d - filtering commits before this height", bootstrapHeight)
 	}
 
-	// Get all commits from current identity state
-	commits, err := client.QueryAttestationCommits(identityName, "")
+	// Get identity history to retrieve ALL commits (including delete records)
+	// QueryAttestationCommits only returns the CURRENT state (latest index per key),
+	// but we need ALL commits including delete records, so we must use history
+	history, err := client.GetIdentityHistory(identityName, 0, 0)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to query blockchain: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to get identity history: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Get identity history to find actual block heights for each commit
-	// This is needed because QueryAttestationCommits only returns current identity block height
-	// Note: We need to fetch from 0 (genesis) to find when commits were first made
-	// Bootstrap filtering will happen later when displaying commits
-	history, err := client.GetIdentityHistory(identityName, 0, 0)
-	if err != nil {
-		// If history fails, log the error but continue with current state
-		log.Printf("[WARNING] Failed to get identity history: %v. Using current block height for all commits.", err)
-		history = nil
-	} else {
-		log.Printf("[INFO] Retrieved identity history with %d entries", len(history.History))
+	log.Printf("[INFO] Retrieved identity history with %d entries", len(history.History))
+
+	// Extract ALL commits from history (each history entry represents one commit)
+	// This includes create, sign, sync, and delete records
+	const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
+	type historyCommit struct {
+		KeyID      string
+		LMSIndex   string
+		BlockHeight int64
+		TxID       string
 	}
 
-	// Build a map of (keyID, lmsIndex) -> (blockHeight, txID) from history
-	// We need to find when each lms_index was first committed for each keyID
-	// Process history from OLDEST to NEWEST to capture the first time each lms_index appears
-	historyMap := make(map[string]int64) // key: "keyID:lmsIndex", value: blockHeight (first commit)
-	txidMap := make(map[string]string)   // key: "keyID:lmsIndex", value: txID (first commit)
-	if history != nil && len(history.History) > 0 {
-		const mapKey = "iK7a5JNJnbeuYWVHCDRpJosj3irGJ5Qa8c"
-		log.Printf("[INFO] Processing %d history entries to find commit block heights", len(history.History))
+	historyCommits := make([]historyCommit, 0)
+	seenCommits := make(map[string]bool) // key: "keyID:lmsIndex:blockHeight" to deduplicate
 
-		// Process ALL history entries and find the FIRST (oldest) block height for each commit
-		// We want the FIRST time each (keyID, lmsIndex) combination appears, which is when it was committed
-		// Once committed, it stays in all subsequent history entries, so we need the OLDEST occurrence
-		// Process from oldest to newest to capture the first occurrence
-		for i := len(history.History) - 1; i >= 0; i-- {
-			entry := history.History[i]
-			if entry.Identity.ContentMultiMap == nil {
-				continue
-			}
-			// For each key_id in this historical entry
-			for keyID, entries := range entry.Identity.ContentMultiMap {
-				if entryList, ok := entries.([]interface{}); ok {
-					for _, item := range entryList {
-						if entryMap, ok := item.(map[string]interface{}); ok {
-							if lmsIndex, ok := entryMap[mapKey].(string); ok {
-								// Create map key: "keyID:lmsIndex"
-								mapKeyStr := fmt.Sprintf("%s:%s", keyID, lmsIndex)
-								// Store the FIRST (oldest) block height for this commit
-								// Process backwards so first occurrence overwrites later ones
-								// If we haven't seen it before OR this is older (lower height), store it
-								if existingHeight, exists := historyMap[mapKeyStr]; !exists {
-									// First time seeing this commit - store it
-									historyMap[mapKeyStr] = entry.Height
-									txidMap[mapKeyStr] = entry.Output.TxID
-									log.Printf("[DEBUG] Found commit: keyID=%s, lmsIndex=%s, blockHeight=%d, txID=%s", keyID, lmsIndex, entry.Height, entry.Output.TxID)
-								} else if entry.Height < existingHeight {
-									// Found an older entry (lower block height) - update to the oldest (first commit)
-									historyMap[mapKeyStr] = entry.Height
-									txidMap[mapKeyStr] = entry.Output.TxID
-									log.Printf("[DEBUG] Updated commit to older block (first occurrence): keyID=%s, lmsIndex=%s, oldHeight=%d, newHeight=%d, txID=%s", keyID, lmsIndex, existingHeight, entry.Height, entry.Output.TxID)
-								}
+	// Process history entries (oldest to newest)
+	for _, entry := range history.History {
+		if entry.Identity.ContentMultiMap == nil {
+			continue
+		}
+		// For each key_id in this historical entry
+		for keyID, entries := range entry.Identity.ContentMultiMap {
+			if entryList, ok := entries.([]interface{}); ok {
+				for _, item := range entryList {
+					if entryMap, ok := item.(map[string]interface{}); ok {
+						if lmsIndex, ok := entryMap[mapKey].(string); ok {
+							// Create unique key to avoid duplicates
+							uniqueKey := fmt.Sprintf("%s:%s:%d", keyID, lmsIndex, entry.Height)
+							if !seenCommits[uniqueKey] {
+								seenCommits[uniqueKey] = true
+								historyCommits = append(historyCommits, historyCommit{
+									KeyID:       keyID,
+									LMSIndex:    lmsIndex,
+									BlockHeight: entry.Height,
+									TxID:        entry.Output.TxID,
+								})
 							}
 						}
 					}
 				}
 			}
 		}
-		log.Printf("[INFO] Built history map with %d entries", len(historyMap))
-	} else if history == nil {
-		log.Printf("[WARNING] Identity history is nil - cannot determine actual commit block heights")
-	} else {
-		log.Printf("[WARNING] Identity history is empty - cannot determine actual commit block heights")
 	}
 
-	// Enrich commits with key_id labels from Raft and actual block heights from history
-	// Cache key_id label lookups to avoid redundant queries for the same canonical key ID
+	log.Printf("[INFO] Extracted %d commits from history", len(historyCommits))
+
+	// Cache key_id label lookups to avoid redundant queries
 	keyIDLabelCache := make(map[string]string) // normalizedKeyID -> key_id_label
 
-	// Filter commits by bootstrap block height if configured
-	if bootstrapHeight > 0 {
-		log.Printf("[INFO] Will filter commits below bootstrap block height %d", bootstrapHeight)
-	}
-
-	enrichedCommits := make([]map[string]interface{}, 0, len(commits))
-	matchedCount := 0
+	// Filter commits by bootstrap block height and enrich with key_id labels
 	filteredCount := 0
-	for _, commit := range commits {
-		// Try to get actual block height from history
-		blockHeight := commit.BlockHeight
-		txid := commit.TxID
-		mapKeyStr := fmt.Sprintf("%s:%s", commit.KeyID, commit.LMSIndex)
-		if histHeight, exists := historyMap[mapKeyStr]; exists {
-			blockHeight = histHeight
-			matchedCount++
-			if histTxid, exists := txidMap[mapKeyStr]; exists {
-				txid = histTxid
-			}
-			log.Printf("[DEBUG] Matched commit: keyID=%s, lmsIndex=%s, using blockHeight=%d (was %d)", commit.KeyID, commit.LMSIndex, blockHeight, commit.BlockHeight)
-		} else {
-			log.Printf("[DEBUG] No history match for: keyID=%s, lmsIndex=%s, using current blockHeight=%d", commit.KeyID, commit.LMSIndex, commit.BlockHeight)
+
+	enrichedCommits := make([]map[string]interface{}, 0, len(historyCommits))
+	for _, commit := range historyCommits {
+		// Filter by bootstrap block height if configured
+		if bootstrapHeight > 0 && commit.BlockHeight < bootstrapHeight {
+			filteredCount++
+			log.Printf("[DEBUG] Filtering commit: keyID=%s, lmsIndex=%s, blockHeight=%d (below bootstrap %d)", commit.KeyID, commit.LMSIndex, commit.BlockHeight, bootstrapHeight)
+			continue // Skip this commit
 		}
 
 		// Get key_id label from cache or lookup
-		// commit.KeyID is the normalized VDXF ID from Verus (canonical key ID)
-		// This should be the same for all commits of the same key (create, sign, sync, delete)
 		keyIDLabel := ""
 		if cached, exists := keyIDLabelCache[commit.KeyID]; exists {
 			keyIDLabel = cached
@@ -142,30 +110,20 @@ func (s *ExplorerServer) handleBlockchain(w http.ResponseWriter, r *http.Request
 			keyIDLabelCache[commit.KeyID] = keyIDLabel // Cache result (even if empty)
 		}
 
-		// Filter by bootstrap block height if configured
-		if bootstrapHeight > 0 && blockHeight < bootstrapHeight {
-			filteredCount++
-			log.Printf("[DEBUG] Filtering commit: keyID=%s, lmsIndex=%s, blockHeight=%d (below bootstrap %d)", commit.KeyID, commit.LMSIndex, blockHeight, bootstrapHeight)
-			continue // Skip this commit
-		}
-
 		enrichedCommit := map[string]interface{}{
-			"key_id":       commit.KeyID, // Canonical key ID (normalized VDXF ID) - same for all commits of this key
-			"pubkey_hash":  commit.PubkeyHash,
+			"key_id":       commit.KeyID, // Canonical key ID (normalized VDXF ID)
+			"pubkey_hash":  "",           // Not available from history alone
 			"lms_index":    commit.LMSIndex,
-			"block_height": blockHeight,
-			"txid":         txid,
-			"timestamp":    commit.Timestamp,
-			"key_id_label": keyIDLabel, // User-friendly key_id label from Raft
+			"block_height": commit.BlockHeight,
+			"txid":         commit.TxID,
+			"timestamp":    time.Time{},  // Not available from history
+			"key_id_label": keyIDLabel,   // User-friendly key_id label from Raft
 		}
 
 		enrichedCommits = append(enrichedCommits, enrichedCommit)
 	}
 
-	log.Printf("[INFO] Matched %d out of %d commits with historical block heights", matchedCount, len(commits))
-	if bootstrapHeight > 0 {
-		log.Printf("[INFO] Filtered out %d commits below bootstrap block height %d", filteredCount, bootstrapHeight)
-	}
+	log.Printf("[INFO] Total commits from history: %d, filtered out: %d, displaying: %d", len(historyCommits), filteredCount, len(enrichedCommits))
 
 	// Sort commits by block height (descending - highest/newest first)
 	// Then by key_id and lms_index for consistent ordering
