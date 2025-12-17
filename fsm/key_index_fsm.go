@@ -77,6 +77,7 @@ type KeyIndexFSM struct {
 	pubkeyHashEntries map[string][]*KeyIndexEntry // pubkey_hash -> all entries (for full chain retrieval)
 	keyIdToPubkeyHash map[string]string           // key_id -> pubkey_hash (for lookup convenience, latest mapping)
 	attestationPubKey *ecdsa.PublicKey            // Public key for verifying signatures
+	entryToRaftIndex  map[string]uint64           // entry hash -> Raft log index (for chronological ordering)
 }
 
 // NewKeyIndexFSM creates a new key index FSM
@@ -87,6 +88,7 @@ func NewKeyIndexFSM(attestationPubKeyPath string) (*KeyIndexFSM, error) {
 		pubkeyHashHashes:  make(map[string]string),
 		pubkeyHashEntries: make(map[string][]*KeyIndexEntry),
 		keyIdToPubkeyHash: make(map[string]string),
+		entryToRaftIndex:  make(map[string]uint64),
 	}
 
 	// Load attestation public key
@@ -208,6 +210,9 @@ func (f *KeyIndexFSM) Apply(l *raft.Log) interface{} {
 		RecordType:   entry.RecordType, // Include record type for proper chain retrieval
 	}
 	f.pubkeyHashEntries[pubkeyHash] = append(f.pubkeyHashEntries[pubkeyHash], entryCopy)
+	
+	// Store Raft log index for chronological ordering
+	f.entryToRaftIndex[entry.Hash] = l.Index
 
 	return fmt.Sprintf("Applied key index: key_id=%s, pubkey_hash=%s, index=%d, hash=%s", entry.KeyID, pubkeyHash, entry.Index, entry.Hash)
 }
@@ -464,6 +469,31 @@ func (f *KeyIndexFSM) GetKeyChain(keyID string) ([]*KeyIndexEntry, bool) {
 	return f.GetAllEntriesByKeyID(keyID)
 }
 
+// GetAllPubkeyHashesByKeyID returns all pubkey_hashes that have entries with the given key_id
+func (f *KeyIndexFSM) GetAllPubkeyHashesByKeyID(keyID string) []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	pubkeyHashes := make(map[string]bool)
+
+	// Iterate through all pubkey_hash entries to find all pubkey_hashes with matching key_id
+	for pubkeyHash, entries := range f.pubkeyHashEntries {
+		for _, entry := range entries {
+			if entry.KeyID == keyID {
+				pubkeyHashes[pubkeyHash] = true
+				break // Found at least one entry for this pubkey_hash
+			}
+		}
+	}
+
+	result := make([]string, 0, len(pubkeyHashes))
+	for ph := range pubkeyHashes {
+		result = append(result, ph)
+	}
+
+	return result
+}
+
 // GetAllEntriesByKeyID returns ALL entries for a key_id across ALL pubkey_hashes
 // This is needed when a key_id is reused (e.g., after delete and recreate)
 // Entries are sorted by pubkey_hash, then by index (ascending)
@@ -507,6 +537,64 @@ func (f *KeyIndexFSM) GetAllEntriesByKeyID(keyID string) ([]*KeyIndexEntry, bool
 	})
 
 	return allEntries, true
+}
+
+// GetAllEntries returns ALL entries from all pubkey_hashes, ordered by Raft log index (newest first)
+// Returns entries with their Raft log indices for chronological ordering
+func (f *KeyIndexFSM) GetAllEntries(limit int) []struct {
+	Entry     *KeyIndexEntry
+	RaftIndex uint64
+} {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	allEntriesWithIndex := make([]struct {
+		Entry     *KeyIndexEntry
+		RaftIndex uint64
+	}, 0)
+
+	// Collect all entries from all pubkey_hashes
+	for _, entries := range f.pubkeyHashEntries {
+		for _, entry := range entries {
+			raftIndex, hasIndex := f.entryToRaftIndex[entry.Hash]
+			if !hasIndex {
+				// If Raft index not found, skip (shouldn't happen, but be safe)
+				continue
+			}
+
+			// Create a copy
+			entryCopy := &KeyIndexEntry{
+				KeyID:        entry.KeyID,
+				PubkeyHash:   entry.PubkeyHash,
+				Index:        entry.Index,
+				PreviousHash: entry.PreviousHash,
+				Hash:         entry.Hash,
+				Signature:    entry.Signature,
+				PublicKey:    entry.PublicKey,
+				RecordType:   entry.RecordType,
+			}
+
+			allEntriesWithIndex = append(allEntriesWithIndex, struct {
+				Entry     *KeyIndexEntry
+				RaftIndex uint64
+			}{
+				Entry:     entryCopy,
+				RaftIndex: raftIndex,
+			})
+		}
+	}
+
+	// Sort by Raft log index (descending - newest first)
+	sort.Slice(allEntriesWithIndex, func(i, j int) bool {
+		return allEntriesWithIndex[i].RaftIndex > allEntriesWithIndex[j].RaftIndex
+	})
+
+	// Apply limit
+	if limit > 0 && limit < len(allEntriesWithIndex) {
+		return allEntriesWithIndex[:limit]
+	}
+
+	return allEntriesWithIndex
 }
 
 // Snapshot creates a snapshot

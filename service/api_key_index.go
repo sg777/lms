@@ -69,8 +69,32 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Handle chain endpoint
 	if endpoint == "chain" {
-		// Build chain from Raft log entries (works even for entries committed before keyEntries storage was added)
-		chainEntries, verification := s.buildChainFromRaftLog(keyID)
+		// Check how many pubkey_hashes exist for this key_id
+		var pubkeyHashes []string
+		if pubkeyHashFSM, ok := s.fsm.(interface {
+			GetAllPubkeyHashesByKeyID(string) []string
+		}); ok {
+			pubkeyHashes = pubkeyHashFSM.GetAllPubkeyHashesByKeyID(keyID)
+		}
+
+		// If multiple pubkey_hashes, return list of pubkey_hashes (user should search by pubkey_hash)
+		if len(pubkeyHashes) > 1 {
+			response := map[string]interface{}{
+				"success":        true,
+				"key_id":         keyID,
+				"exists":         true,
+				"multiple_chains": true,
+				"pubkey_hashes":  pubkeyHashes,
+				"count":          len(pubkeyHashes),
+				"message":        fmt.Sprintf("Multiple chains found for key_id %s. Please search by pubkey_hash.", keyID),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
+		// Single or no pubkey_hash - build chain (limit to top 10 entries)
+		chainEntries, verification := s.buildChainFromRaftLog(keyID, 10)
 
 		if len(chainEntries) == 0 {
 			response := map[string]interface{}{
@@ -130,7 +154,8 @@ func (s *APIServer) handleKeyIndex(w http.ResponseWriter, r *http.Request) {
 // buildChainFromRaftLog builds the full hash chain for a key_id by querying through FSM's stored entries first,
 // then falling back to querying log entries if needed
 // Returns the chain entries and verification results
-func (s *APIServer) buildChainFromRaftLog(keyID string) ([]map[string]interface{}, *ChainVerification) {
+// limit: maximum number of entries to return (0 = no limit)
+func (s *APIServer) buildChainFromRaftLog(keyID string, limit int) ([]map[string]interface{}, *ChainVerification) {
 	chainEntries := make([]map[string]interface{}, 0)
 	verification := &ChainVerification{
 		Valid:      true,
@@ -144,6 +169,11 @@ func (s *APIServer) buildChainFromRaftLog(keyID string) ([]map[string]interface{
 	}); ok {
 		entries, exists := chainFSM.GetKeyChain(keyID)
 		if exists && len(entries) > 0 {
+			// Apply limit if specified
+			if limit > 0 && limit < len(entries) {
+				entries = entries[:limit]
+			}
+
 			// Convert to response format and verify chain integrity
 			// Note: "hash" is the CURRENT hash of THIS entry (computed on all fields except hash itself)
 			// This hash becomes the "previous_hash" for the next entry in the chain

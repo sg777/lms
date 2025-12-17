@@ -5,70 +5,89 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"time"
 )
 
-// getRecentCommits fetches recent commits from Raft cluster
+// getRecentCommits fetches recent commits from Raft cluster using /all_entries endpoint
 func (s *ExplorerServer) getRecentCommits(limit int) ([]CommitInfo, error) {
-	// Check cache first
-	s.cacheMu.RLock()
-	if time.Since(s.cacheLastUpdated) < s.cacheTTL && len(s.recentCommits) > 0 {
-		commits := s.recentCommits
-		s.cacheMu.RUnlock()
-
-		// Return limited results
-		if limit < len(commits) {
-			return commits[:limit], nil
-		}
-		return commits, nil
-	}
-	s.cacheMu.RUnlock()
-
-	// Fetch from Raft cluster
+	// Fetch from Raft cluster using /all_entries endpoint
 	allCommits := make([]CommitInfo, 0)
 
-	// Get all keys first
-	keys, err := s.getAllKeys()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get keys: %v", err)
-	}
-
-	// For each key, get its chain and extract commits
-	for _, keyID := range keys {
-		chain, err := s.getChain(keyID)
+	var lastErr error
+	for _, endpoint := range s.raftEndpoints {
+		url := fmt.Sprintf("%s/all_entries?limit=%d", endpoint, limit+10) // Fetch extra for comparison
+		resp, err := s.client.Get(url)
 		if err != nil {
-			continue // Skip keys that fail
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			lastErr = fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+			continue
 		}
 
-		for _, entry := range chain.Entries {
-			commit := CommitInfo{
-				KeyID:        entry.KeyID,
-				PubkeyHash:   entry.PubkeyHash,
-				Index:        entry.Index,
-				Hash:         entry.Hash,
-				PreviousHash: entry.PreviousHash,
-				Timestamp:    time.Now(), // Raft doesn't provide timestamp, use current
+		var response map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			lastErr = err
+			continue
+		}
+
+		success, _ := response["success"].(bool)
+		if !success {
+			errorMsg, _ := response["error"].(string)
+			lastErr = fmt.Errorf("query failed: %s", errorMsg)
+			continue
+		}
+
+		entries, ok := response["entries"].([]interface{})
+		if !ok {
+			lastErr = fmt.Errorf("invalid entries format")
+			continue
+		}
+
+		// Convert to CommitInfo
+		for _, entryData := range entries {
+			entryMap, ok := entryData.(map[string]interface{})
+			if !ok {
+				continue
 			}
+
+			commit := CommitInfo{
+				KeyID:        getString(entryMap, "key_id"),
+				PubkeyHash:   getString(entryMap, "pubkey_hash"),
+				PreviousHash: getString(entryMap, "previous_hash"),
+				Hash:         getString(entryMap, "hash"),
+				Timestamp:    time.Now(), // Raft doesn't provide timestamp
+			}
+
+			if idx, ok := entryMap["index"].(float64); ok {
+				commit.Index = uint64(idx)
+			}
+
+			if raftIdx, ok := entryMap["raft_index"].(float64); ok {
+				commit.RaftIndex = uint64(raftIdx)
+			}
+
 			allCommits = append(allCommits, commit)
 		}
+
+		// Success - break out of loop
+		break
 	}
 
-	// Sort by RaftIndex (most recent first) - approximate
-	sort.Slice(allCommits, func(i, j int) bool {
-		return allCommits[i].RaftIndex > allCommits[j].RaftIndex
-	})
-
-	// Update cache
-	s.cacheMu.Lock()
-	s.recentCommits = allCommits
-	s.cacheLastUpdated = time.Now()
-	s.cacheMu.Unlock()
-
-	// Return limited results
-	if limit < len(allCommits) {
-		return allCommits[:limit], nil
+	if len(allCommits) == 0 && lastErr != nil {
+		return nil, fmt.Errorf("failed to fetch entries from all endpoints: %v", lastErr)
 	}
+
+	// Entries are already sorted by Raft log index (newest first) from the API
+	// Apply limit
+	if limit > 0 && limit < len(allCommits) {
+		allCommits = allCommits[:limit]
+	}
+
 	return allCommits, nil
 }
 

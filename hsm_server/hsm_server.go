@@ -2,6 +2,8 @@ package hsm_server
 
 import (
 	"crypto/ecdsa"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -208,13 +210,21 @@ func (s *HSMServer) generateKey(keyID string, userID string, username string) (*
 			}
 		}
 
-		// Generate new key ID with next number
+		// Generate new key ID with next number + base64-encoded 32-bit random
+		// Generate 32-bit (4 bytes) random number
+		randomBytes := make([]byte, 4)
+		if _, err := rand.Read(randomBytes); err != nil {
+			return nil, fmt.Errorf("failed to generate random bytes: %v", err)
+		}
+		randomBase64 := base64.URLEncoding.EncodeToString(randomBytes)
+		
+		// Format: {username}_{number}_{base64_random}
 		if username != "" {
-			keyID = fmt.Sprintf("%s_%d", username, maxKeyNum+1)
+			keyID = fmt.Sprintf("%s_%d_%s", username, maxKeyNum+1, randomBase64)
 		} else if userID != "" {
-			keyID = fmt.Sprintf("user_%s_key_%d", userID, maxKeyNum+1)
+			keyID = fmt.Sprintf("user_%s_key_%d_%s", userID, maxKeyNum+1, randomBase64)
 		} else {
-			keyID = fmt.Sprintf("lms_key_%d", maxKeyNum+1)
+			keyID = fmt.Sprintf("lms_key_%d_%s", maxKeyNum+1, randomBase64)
 		}
 	}
 

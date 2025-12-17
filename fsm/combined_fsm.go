@@ -130,6 +130,17 @@ func (f *CombinedFSM) GetChainByPubkeyHash(pubkeyHash string) ([]*KeyIndexEntry,
 	return f.keyIndexFSM.GetChainByPubkeyHash(pubkeyHash)
 }
 
+func (f *CombinedFSM) GetAllEntries(limit int) []struct {
+	Entry     *KeyIndexEntry
+	RaftIndex uint64
+} {
+	return f.keyIndexFSM.GetAllEntries(limit)
+}
+
+func (f *CombinedFSM) GetAllPubkeyHashesByKeyID(keyID string) []string {
+	return f.keyIndexFSM.GetAllPubkeyHashesByKeyID(keyID)
+}
+
 type combinedSnapshot struct {
 	hashChainSnapshot raft.FSMSnapshot
 	keyIndexSnapshot  raft.FSMSnapshot

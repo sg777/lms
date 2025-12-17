@@ -65,6 +65,7 @@ func (s *APIServer) Start() error {
 	mux.HandleFunc("/key/", s.handleKeyIndex) // /key/<key_id>/index (backward compatibility)
 	mux.HandleFunc("/pubkey_hash/", s.handlePubkeyHashIndex) // /pubkey_hash/<pubkey_hash>/index (Phase B)
 	mux.HandleFunc("/commit_index", s.handleCommitIndex)
+	mux.HandleFunc("/all_entries", s.handleAllEntries) // Get all entries ordered by Raft log index
 	
 	addr := fmt.Sprintf(":%d", s.config.APIPort)
 	log.Printf("Starting API server on %s", addr)
